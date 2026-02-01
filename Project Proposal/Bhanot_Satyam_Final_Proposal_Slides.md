@@ -2,13 +2,66 @@
 
 ---
 
-### Development Plan
+### Framework Options Considered
 
-- We will implement the CNN architecture from the strawberry detection paper using **PyTorch**
-- PyTorch was chosen because:
-  - It is easier to modify model layers during experimentation
-  - It allows parts of the model to be enabled or bypassed for ablation studies
-  - Debugging and inspecting intermediate outputs is simpler
+Before choosing PyTorch, we considered the following options:
+
+---
+
+### Option 1: TensorFlow / Keras
+
+**Benefits**
+- Simple high-level API
+- Faster to prototype basic models
+- Large number of built-in training utilities
+
+**Drawbacks**
+- Harder to modify internal layers once the model is built
+- More difficult to bypass or remove individual components
+- Ablation studies often require rewriting parts of the model
+- Less flexible when working with custom data pipelines and intermediate outputs
+
+**Why We Did Not Choose It**
+- Our project requires multiple ablation studies
+- We need to easily disable components such as the Sobel edge detector
+- TensorFlow is less convenient for fine-grained architectural changes
+
+---
+
+### Option 2: PyTorch (Chosen)
+
+**Benefits**
+- Easy to modify and experiment with model structure
+- Individual layers and components can be turned on or off
+- Simpler to inspect intermediate outputs during training
+- Better suited for controlled ablation studies
+- Flexible data loading for multiple image resolutions and formats
+
+**Drawbacks**
+- Slightly more setup code compared to Keras
+- Requires more manual handling of training loops
+
+---
+
+### Why PyTorch Was Chosen
+
+- Our project focuses on **understanding model behavior**, not just training accuracy
+- We need to:
+  - Remove layers
+  - Bypass the Sobel edge detector
+  - Change input formats and resolutions
+- PyTorch allows us to make these changes cleanly and safely
+- The extra setup cost is acceptable given the flexibility it provides
+
+---
+
+### Final Decision
+
+- PyTorch was selected because it best supports:
+  - Model adaptation to a new domain
+  - Controlled ablation studies
+  - Clear analysis of failure cases
+
 
 ---
 

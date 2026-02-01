@@ -1,6 +1,6 @@
 # COMP_4360_GROUP_6
 
-Project Proposal
+**Project Proposal**
 
 Must present a detailed technical proposal, acting as a plan for the project. It must demonstrate technical feasibility
 5-10 minutes
@@ -21,4 +21,13 @@ Slide 5) Project management - Gantt Chart: Make a timeline with clear milestones
 Slide 6) Role Division - Clearly state which student is responsible for which technical component
 Slide 7) EDI Considerations - Discuss equity, diversity and inclusion considerations to relevant to your dataset or problem (i.e: bias in training data)
 Slide 8) Proper citations for the source paper and dataset (and other sources mentioned). Make sure to format this using IEEE citation style
+
+
+**Division of work among members:**
+
+Rudy - slides 2, 6, 7
+
+Satyam - slides 4, 5
+
+Gabe - slides 1, 3, 8
 

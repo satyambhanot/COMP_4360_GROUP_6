@@ -8,7 +8,7 @@ Before choosing PyTorch, we considered the following options:
 
 ---
 
-### Option 1: TensorFlow / Keras
+### Option 1: TensorFlow
 
 **Benefits**
 - Simple high-level API
@@ -28,7 +28,7 @@ Before choosing PyTorch, we considered the following options:
 
 ---
 
-### Option 2: PyTorch (Chosen)
+### Option 2: PyTorch
 
 **Benefits**
 - Easy to modify and experiment with model structure
@@ -179,10 +179,3 @@ The purpose of the ablation studies is to identify **which components are import
   - Bias toward predicting “Not Waldo”
 
 ---
-
-### Summary of Ablation Goals
-
-- Identify which inputs and components the model relies on
-- Observe how performance degrades when information is removed
-- Understand where and why the model fails
-- Go beyond accuracy by analyzing failure behavior

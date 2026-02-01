@@ -4,8 +4,11 @@
 
 Must present a detailed technical proposal, acting as a plan for the project. It must demonstrate technical feasibility
 5-10 minutes
+
 Each student will be asked 1-2 questions to verify their specific contribution and understanding
+
 Due 5pm Monday February 2nd
+
 Slides:
 
 Slide 1) Title slide (project name, group member names, course name, instructors name, date

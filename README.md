@@ -18,7 +18,7 @@ Slide 2) Problem domain and dataset - introduce the specific problem you are sol
 Slide 3) Adaptation strategy - explain the specific technical challenges required to apply the paper’s architecture to your new dataset 
 Slide 4) Development plan - Environment: state the framework and hardware resources (i.e: GPUs) you will use. Ablation plan: Identify at least 1 Ablation study you plan to perform (i.e: removing a specific module or changing a hyperparameter)
 Slide 5) Project management - Gantt Chart: Make a timeline with clear milestones
-Slide 6) Role Division - Clearly state which student is responsible for which technical component
+Slide 6) Role Division - Clearly state which student is responsible for which technical component. Implementation: Gabe Training: Rudy Ablation studies: Satyam 
 Slide 7) EDI Considerations - Discuss equity, diversity and inclusion considerations to relevant to your dataset or problem (i.e: bias in training data)
 Slide 8) Proper citations for the source paper and dataset (and other sources mentioned). Make sure to format this using IEEE citation style
 

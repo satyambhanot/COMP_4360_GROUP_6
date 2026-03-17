@@ -13,7 +13,7 @@ This project adapts a strawberry detection system (Lamb & Chuah, IEEE Big Data 2
 ```bash
 # 1. Clone the repository
 git clone https://github.com/satyambhanot/wheres-waldo-comp4360.git
-cd wheres-waldo-comp4360
+cd COMP_4360_GROUP_6
 
 # 2. Set up the environment
 make setup
@@ -36,7 +36,7 @@ make evaluate
 ## Project Structure
 
 ```
-wheres-waldo-comp4360/
+COMP_4360_GROUP_6/
 ├── src/
 │   ├── __init__.py                [CUSTOM]  Package init
 │   ├── config.py                  [CUSTOM]  Central configuration (paths, hyperparams)

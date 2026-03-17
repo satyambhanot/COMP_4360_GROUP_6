@@ -32,9 +32,6 @@ make evaluate
 ## Prerequisites
 
 - **Python 3.11+**
-- **macOS with Apple Silicon** (M1/M2) for MPS acceleration, OR **Linux/Windows with NVIDIA GPU** (CUDA)
-- ~2 GB disk space for Python dependencies
-- Training takes 2-4 hours on an M2 MacBook (200 epochs at 256px). Adjust expectations for slower hardware.
 
 ## Project Structure
 

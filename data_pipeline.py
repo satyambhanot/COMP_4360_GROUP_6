@@ -3,6 +3,9 @@ import json
 import random
 import xml.etree.ElementTree as ET
 from PIL import Image
+import torch
+from torch.utils.data import Dataset, DataLoader
+from torchvision import transforms
 
 # where our stuff lives
 RAW_IMAGES = "data/raw/images"
@@ -166,5 +169,62 @@ def run_pipeline():
     print(f"\nsaved splits to {splits_path}")
 
 
+class WaldoTileDataset(Dataset): # pytorch dataset that loads tiles from splits.json
+
+    def __init__(self, split="train", tile_size=256):
+        splits_path = os.path.join(PROCESSED, "splits.json")
+        with open(splits_path, "r") as f:
+            all_splits = json.load(f)
+
+        # only grab tiles of the requested size
+        self.tiles = [t for t in all_splits[split] if t["tile_size"] == tile_size]
+        self.tile_size = tile_size
+
+        self.transform = transforms.Compose([
+            transforms.Resize((256, 256)), # everything goes to 256x256 for the backbone
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) # imagenet normalization
+        ])
+
+    def __len__(self):
+        return len(self.tiles)
+
+    def __getitem__(self, idx):
+        tile_info = self.tiles[idx]
+
+        img_path = os.path.join(PROCESSED, str(self.tile_size), tile_info["file"])
+        img = Image.open(img_path).convert("RGB")
+        img_tensor = self.transform(img)
+
+        label = tile_info["has_waldo"] # 0 or 1
+
+        # bbox is [xmin, ymin, xmax, ymax] relative to tile, or [0,0,0,0] if no waldo
+        if tile_info["local_bbox"] is not None:
+            bbox = torch.tensor(tile_info["local_bbox"], dtype=torch.float32)
+        else:
+            bbox = torch.zeros(4, dtype=torch.float32)
+
+        return img_tensor, label, bbox
+
+
+def get_dataloader(split="train", tile_size=256, batch_size=16, shuffle=True):
+    dataset = WaldoTileDataset(split=split, tile_size=tile_size)
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+    return loader
+
+
 if __name__ == "__main__":
     run_pipeline()
+
+    # quick test to make sure the dataset and dataloader work
+    print("\n--- testing dataset ---")
+    for size in TILE_SIZES:
+        ds = WaldoTileDataset(split="train", tile_size=size)
+        print(f"  {size}x{size} train set: {len(ds)} tiles")
+
+    print("\n--- testing dataloader ---")
+    loader = get_dataloader(split="train", tile_size=256, batch_size=4)
+    images, labels, bboxes = next(iter(loader))
+    print(f"  batch images shape: {images.shape}") # should be [4, 3, 256, 256]
+    print(f"  batch labels: {labels}")
+    print(f"  batch bboxes shape: {bboxes.shape}") # should be [4, 4]

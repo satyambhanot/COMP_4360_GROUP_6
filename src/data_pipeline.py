@@ -7,10 +7,13 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 
+# figure out the project root so paths work no matter where you run from
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 # where our stuff lives
-RAW_IMAGES = "data/raw/images"
-RAW_ANNOTATIONS = "data/raw/annotations"
-PROCESSED = "data/processed"
+RAW_IMAGES = os.path.join(PROJECT_ROOT, "data/raw/images")
+RAW_ANNOTATIONS = os.path.join(PROJECT_ROOT, "data/raw/annotations")
+PROCESSED = os.path.join(PROJECT_ROOT, "data/processed")
 
 # tile sizes we want to generate (multi-resolution like the paper says)
 TILE_SIZES = [64, 128, 256]

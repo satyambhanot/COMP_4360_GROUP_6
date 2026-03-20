@@ -1,9 +1,9 @@
 import torch
 import matplotlib.pyplot as plt
-from ImageDataLoader import ImageDataLoader
 from PIL import Image
 from torchvision import datasets, transforms, models
-DATA_PATH = "./Dataset/Hey-Waldo-master/128"
+from data_pipeline import get_dataloader
+
 BATCH_SIZE = 10
 
 class MobileV2Backbone:
@@ -15,28 +15,26 @@ class MobileV2Backbone:
         featureExtractor = mobileNet.features[:11] #outputs 16*16 * 64 channels
         featureExtractor.eval() #ensures model uses pre-trained knowledge to extract features
 
-        data_iterator = iter(batch)
-
-        images, labels = next(data_iterator) # grab 1st batch
-
         with(torch.no_grad()): #tells pytorch not to track history of gradient calculations
-            output = featureExtractor(images) #size 64 * 64 * 16
+            output = featureExtractor(batch) #size 64 * 64 * 16
 
-        # Note: 4 numbers in the images.shape array are: [Batch size N, Number of Channels C, Height H, Width W]   
+        # Note: 4 numbers in the images.shape array are: [Batch size N, Number of Channels C, Height H, Width W]
 
         return output
 
 
 def CreateWaldoModel():
-    loader = ImageDataLoader(10,"./Dataset/Hey-Waldo-master/128")
-    dataset = loader.LoadDataset()
-    batch = loader.LoadBatch(dataset)
+    loader = get_dataloader(split="train", tile_size=256, batch_size=BATCH_SIZE)
+    images, labels, bboxes = next(iter(loader))
 
     backbone = MobileV2Backbone()
-    backbone.PassBatchThroughMobileV2Backbone(batch)
+    output = backbone.PassBatchThroughMobileV2Backbone(images)
+    print(f"input shape: {images.shape}")
+    print(f"output shape: {output.shape}")
 
 
-CreateWaldoModel()
+if __name__ == "__main__":
+    CreateWaldoModel()
 
 ## Steps:
 
@@ -55,7 +53,3 @@ CreateWaldoModel()
 ## Step 7: Concatenate anchors
 
 ## Step 8: Apply non-maximum suppresion
-
-
-
-

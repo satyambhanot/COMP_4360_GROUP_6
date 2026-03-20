@@ -11,11 +11,11 @@
 #   6. NMS (non-maximum suppression) filters out overlapping boxes, keeps the best ones
 #
 # right now we have the individual pieces built:
-#   - data_pipeline.py (done) - loads tiles and labels
-#   - pre_processing.py (done) - HSV mask and sobel edges
-#   - MobileV2Backbone.py (done) - feature extraction
-#   - ssd.py (done) - single SSD block
-#   - ConcatenateAnchors.py (needs work) - just a stub right now
+#   data_pipeline.py (done): loads tiles and labels
+#   pre_processing.py (done): HSV mask and sobel edges
+#   MobileV2Backbone.py (done): feature extraction
+#   ssd.py (done): single SSD block
+#   ConcatenateAnchors.py (needs work): just a stub right now
 #
 # TODO: wire backbone -> ssd heads -> anchor concat -> nms into one nn.Module
 # TODO: figure out how pre_processing fits in (extra input channels? or separate scoring?)

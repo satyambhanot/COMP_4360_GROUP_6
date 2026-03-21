@@ -217,6 +217,8 @@ class WaldoTileDataset(Dataset):
 
 
 def get_dataloader(split="train", tile_size=256, batch_size=BATCH_SIZE, shuffle=True):
+    # this is the main way other files load data
+    # just call get_dataloader() and you get batches of (images, labels, bboxes) ready to go
     dataset = WaldoTileDataset(split=split, tile_size=tile_size)
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
     return loader

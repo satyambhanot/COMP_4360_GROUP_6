@@ -1,3 +1,11 @@
+# data_pipeline.py
+# this file handles everything related to getting our data ready for the model
+# it takes 19 raw wheres waldo images and their xml annotations,
+# chops them into smaller tiles at different sizes (64, 128, 256),
+# figures out which tiles actually contain waldo,
+# splits everything into train/val/test sets,
+# and provides a pytorch dataset and dataloader so other files can easily grab batches
+
 import os
 import json
 import random

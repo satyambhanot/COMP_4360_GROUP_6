@@ -15,7 +15,7 @@
 #   pre_processing.py (done): HSV mask and sobel edges
 #   MobileV2Backbone.py (done): feature extraction
 #   ssd.py (done): single SSD block
-#   ConcatenateAnchors.py (needs work): just a stub right now
+#   ConcatenateAnchors.py (done): anchor generation, reshape predictions, concatenate all heads
 #
 # TODO: wire backbone -> ssd heads -> anchor concat -> nms into one nn.Module
 # TODO: figure out how pre_processing fits in (extra input channels? or separate scoring?)

@@ -6,20 +6,13 @@ from PIL import Image
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
-
-# figure out the project root so paths work no matter where you run from
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-# where our stuff lives
-RAW_IMAGES = os.path.join(PROJECT_ROOT, "data/raw/images")
-RAW_ANNOTATIONS = os.path.join(PROJECT_ROOT, "data/raw/annotations")
-PROCESSED = os.path.join(PROJECT_ROOT, "data/processed")
-
-# tile sizes we want to generate (multi-resolution like the paper says)
-TILE_SIZES = [64, 128, 256]
-
-# if at least this fraction of waldo is inside a tile, count it as positive
-OVERLAP_THRESHOLD = 0.5
+from config import (
+    RAW_IMAGES, RAW_ANNOTATIONS, PROCESSED,
+    TILE_SIZES, OVERLAP_THRESHOLD,
+    TRAIN_RATIO, VAL_RATIO, RANDOM_SEED,
+    INPUT_SIZE, BATCH_SIZE,
+    IMAGENET_MEAN, IMAGENET_STD
+)
 
 
 def parse_annotation(xml_path): # reads one xml file and pulls out the bounding box
@@ -103,7 +96,7 @@ def tile_image(image_id): # chop one image into tiles at all resolutions
     return tiles_info
 
 
-def make_splits(all_tiles, train_ratio=0.7, val_ratio=0.15): # split by image id so no leaking
+def make_splits(all_tiles, train_ratio=TRAIN_RATIO, val_ratio=VAL_RATIO): # split by image id so no leaking
     image_ids = list(set(t["image_id"] for t in all_tiles))
     random.shuffle(image_ids)
 
@@ -158,7 +151,7 @@ def run_pipeline():
         print(f"  {size}x{size}: {count} tiles ({pos} positive)")
 
     # split into train/val/test
-    random.seed(42) # reproducible splits
+    random.seed(RANDOM_SEED) # reproducible splits
     splits = make_splits(all_tiles)
 
     for split_name, split_tiles in splits.items():
@@ -184,9 +177,9 @@ class WaldoTileDataset(Dataset): # pytorch dataset that loads tiles from splits.
         self.tile_size = tile_size
 
         self.transform = transforms.Compose([
-            transforms.Resize((256, 256)), # everything goes to 256x256 for the backbone
+            transforms.Resize((INPUT_SIZE, INPUT_SIZE)), # everything goes to 256x256 for the backbone
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) # imagenet normalization
+            transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD) # imagenet normalization
         ])
 
     def __len__(self):
@@ -210,7 +203,7 @@ class WaldoTileDataset(Dataset): # pytorch dataset that loads tiles from splits.
         return img_tensor, label, bbox
 
 
-def get_dataloader(split="train", tile_size=256, batch_size=16, shuffle=True):
+def get_dataloader(split="train", tile_size=256, batch_size=BATCH_SIZE, shuffle=True):
     dataset = WaldoTileDataset(split=split, tile_size=tile_size)
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
     return loader

@@ -173,7 +173,12 @@ def run_pipeline(): # the main function that does everything, tiles all images a
     print(f"\nsaved splits to {splits_path}")
 
 
-class WaldoTileDataset(Dataset): # pytorch dataset that loads tiles from splits.json
+class WaldoTileDataset(Dataset):
+    # pytorch dataset that loads tiles from splits.json
+    # when you grab a tile from this dataset it gives you three things:
+    #   image tensor [3, 256, 256] normalized for mobilenet
+    #   label (0 = no waldo, 1 = waldo is in this tile)
+    #   bbox [4] with waldos position inside the tile, or [0,0,0,0] if no waldo
 
     def __init__(self, split="train", tile_size=256):
         splits_path = os.path.join(PROCESSED, "splits.json")

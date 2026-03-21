@@ -128,7 +128,7 @@ def make_splits(all_tiles, train_ratio=TRAIN_RATIO, val_ratio=VAL_RATIO): # spli
     return splits
 
 
-def run_pipeline():
+def run_pipeline(): # the main function that does everything, tiles all images and creates the splits
     print("starting tiling pipeline...")
 
     # get all image ids from the annotation folder

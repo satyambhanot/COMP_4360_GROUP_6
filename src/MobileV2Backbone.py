@@ -1,5 +1,5 @@
 # MobileV2Backbone.py
-# this is our feature extractor - it takes raw tile images and pulls out
+# this is our feature extractor, it takes raw tile images and pulls out
 # useful features that the SSD heads can use to find waldo
 # we use a pretrained MobileNetV2 because its already learned to recognize
 # shapes, edges, textures etc from being trained on imagenet

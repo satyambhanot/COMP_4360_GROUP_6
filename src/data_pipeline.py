@@ -213,12 +213,12 @@ if __name__ == "__main__":
     run_pipeline()
 
     # quick test to make sure the dataset and dataloader work
-    print("\n--- testing dataset ---")
+    print("\ntesting dataset")
     for size in TILE_SIZES:
         ds = WaldoTileDataset(split="train", tile_size=size)
         print(f"  {size}x{size} train set: {len(ds)} tiles")
 
-    print("\n--- testing dataloader ---")
+    print("\ntesting dataloader")
     loader = get_dataloader(split="train", tile_size=256, batch_size=4)
     images, labels, bboxes = next(iter(loader))
     print(f"  batch images shape: {images.shape}") # should be [4, 3, 256, 256]

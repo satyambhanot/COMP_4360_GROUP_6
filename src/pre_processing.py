@@ -55,7 +55,7 @@ def ApplyHSVMask(images): # binary mask that highlights red and white pixels (wa
     return combined
 
 
-def ApplySobelEdgeDetection(images): # edge detection - waldos stripes make strong horizontal edges
+def ApplySobelEdgeDetection(images): # edge detection, waldos stripes make strong horizontal edges
     # undo normalization
     mean = torch.tensor(IMAGENET_MEAN).view(1, 3, 1, 1)
     std  = torch.tensor(IMAGENET_STD).view(1, 3, 1, 1)
@@ -87,8 +87,8 @@ def ApplySobelEdgeDetection(images): # edge detection - waldos stripes make stro
 
 
 def preprocess_batch(images): # takes [N, 3, 256, 256] and returns [N, 5, 256, 256]
-    hsv_mask = ApplyHSVMask(images)       # [N, 1, 256, 256] - red/white pixel mask
-    sobel = ApplySobelEdgeDetection(images) # [N, 1, 256, 256] - edge magnitude
+    hsv_mask = ApplyHSVMask(images)       # [N, 1, 256, 256] red/white pixel mask
+    sobel = ApplySobelEdgeDetection(images) # [N, 1, 256, 256] edge magnitude
 
     # stack RGB + HSV mask + sobel edges = 5 channels total
     # this gives the model extra hints about where waldo might be

@@ -42,7 +42,7 @@ WHITE_SAT_MAX = 0.15 # saturation below this = white
 WHITE_VAL_MIN = 0.7 # brightness above this = white
 
 # --- model architecture ---
-# be careful changing BACKBONE_LAYERS - it changes the output channels and spatial size
+# be careful changing BACKBONE_LAYERS, it changes the output channels and spatial size
 # with 11 layers we get 64 channels at 16x16 from a 256x256 input
 BACKBONE_LAYERS = 11 # first N layers of mobilenetv2 to use as feature extractor
 BACKBONE_CHANNELS = 64 # output channels from the backbone (depends on BACKBONE_LAYERS)

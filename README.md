@@ -54,7 +54,7 @@ Uses a pretrained MobileNetV2 (trained on ImageNet) as a feature extractor. We t
 ### Step 4: SSD Detection Heads (ssd.py) [DONE]
 A single SSD block that takes a feature map and does two things: predicts bounding box offsets (where is Waldo relative to anchor positions) and predicts class scores (Waldo or not Waldo). Then it downsamples the feature map by half so the next head can make predictions at a coarser scale. We chain 6 of these together to detect Waldo at different sizes.
 
-### Step 5: Concatenate Anchors (ConcatenateAnchors.py) [NEEDS WORK]
+### Step 5: Concatenate Anchors (ConcatenateAnchors.py) [DONE]
 Right now it just collects the SSD head outputs and stuffs them into a list without actually doing anything with them. It doesnt reshape the predictions, doesnt generate anchor positions, and doesnt combine anything into a usable format. It needs to generate anchor box positions at each scale, reshape all the predictions from all 6 heads, and combine them into two clean tensors: all bounding boxes [batch, total_anchors, 4] and all class scores [batch, total_anchors, 2].
 
 ### Step 6: Full Model (model.py) [NEEDS WORK]

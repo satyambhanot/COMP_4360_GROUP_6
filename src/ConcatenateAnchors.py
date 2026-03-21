@@ -50,6 +50,30 @@ def generate_anchors(feature_size, image_size=INPUT_SIZE):
     return torch.tensor(anchors, dtype=torch.float32)
 
 
+def reshape_predictions(loc, cls):
+    # the SSD head outputs loc and cls in convolution format
+    # loc comes out as [N, NUM_ANCHORS * 4, H, W] which is hard to work with
+    # cls comes out as [N, NUM_ANCHORS * NUM_CLASSES, H, W]
+    #
+    # we want to rearrange them so each row is one prediction:
+    # loc becomes [N, H * W * NUM_ANCHORS, 4] (one row per anchor, 4 box values each)
+    # cls becomes [N, H * W * NUM_ANCHORS, NUM_CLASSES] (one row per anchor, 2 class scores each)
+    #
+    # we're not changing any values here, just rearranging them into a flat list
+
+    batch_size = loc.shape[0]
+
+    # loc: [N, anchors*4, H, W] -> [N, H, W, anchors*4] -> [N, H*W*anchors, 4]
+    loc = loc.permute(0, 2, 3, 1).contiguous() # move channels to the end
+    loc = loc.view(batch_size, -1, 4) # flatten into rows of 4
+
+    # cls: [N, anchors*classes, H, W] -> [N, H, W, anchors*classes] -> [N, H*W*anchors, classes]
+    cls = cls.permute(0, 2, 3, 1).contiguous()
+    cls = cls.view(batch_size, -1, NUM_CLASSES)
+
+    return loc, cls
+
+
 if __name__ == "__main__":
     # test generate_anchors with the feature sizes we expect from our SSD heads
     # backbone outputs 16x16, then each head halves it: 8x8, 4x4, 2x2, 1x1
@@ -60,3 +84,15 @@ if __name__ == "__main__":
         print(f"feature size {fs}x{fs}: {anchors.shape[0]} anchors, shape {anchors.shape}")
         # show the first anchor as a sanity check
         print(f"  first anchor: cx={anchors[0][0]:.1f}, cy={anchors[0][1]:.1f}, w={anchors[0][2]:.1f}, h={anchors[0][3]:.1f}")
+
+    # test reshape_predictions with fake SSD output
+    # pretend we have a batch of 2 images, 16x16 feature map, 4 anchors, 2 classes
+    print("\ntesting reshape_predictions")
+    fake_loc = torch.randn(2, NUM_ANCHORS * 4, 16, 16) # [2, 16, 16, 16]
+    fake_cls = torch.randn(2, NUM_ANCHORS * NUM_CLASSES, 16, 16) # [2, 8, 16, 16]
+    print(f"  raw loc shape: {fake_loc.shape}")
+    print(f"  raw cls shape: {fake_cls.shape}")
+
+    loc_reshaped, cls_reshaped = reshape_predictions(fake_loc, fake_cls)
+    print(f"  reshaped loc: {loc_reshaped.shape}") # should be [2, 1024, 4]
+    print(f"  reshaped cls: {cls_reshaped.shape}") # should be [2, 1024, 2]

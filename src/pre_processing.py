@@ -5,12 +5,17 @@
 
 import torch
 import torch.nn.functional as F
+from config import (
+    IMAGENET_MEAN, IMAGENET_STD,
+    RED_HUE_MAX, RED_HUE_MIN, RED_SAT_MIN, RED_VAL_MIN,
+    WHITE_SAT_MAX, WHITE_VAL_MIN
+)
 
 
 def RGBtoHSV(images): # converts normalized RGB images to HSV color space
     # undo the ImageNet normalization first
-    mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
-    std  = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
+    mean = torch.tensor(IMAGENET_MEAN).view(1, 3, 1, 1)
+    std  = torch.tensor(IMAGENET_STD).view(1, 3, 1, 1)
     rgb  = (images * std + mean).clamp(0, 1)
 
     r, g, b = rgb[:, 0, :, :], rgb[:, 1, :, :], rgb[:, 2, :, :]
@@ -43,17 +48,17 @@ def ApplyHSVMask(images): # binary mask that highlights red and white pixels (wa
     h, s, v = hsv[:, 0, :, :], hsv[:, 1, :, :], hsv[:, 2, :, :]
 
     # red sits at both ends of the hue wheel (near 0 and 360)
-    red_mask   = ((h <= 15) | (h >= 345)) & (s > 0.4) & (v > 0.3)
-    white_mask = (s < 0.15) & (v > 0.7)
+    red_mask   = ((h <= RED_HUE_MAX) | (h >= RED_HUE_MIN)) & (s > RED_SAT_MIN) & (v > RED_VAL_MIN)
+    white_mask = (s < WHITE_SAT_MAX) & (v > WHITE_VAL_MIN)
 
     combined = (red_mask | white_mask).float().unsqueeze(1)  # [N, 1, H, W]
     return combined
 
 
-def ApplySobelEdgeDetection(images): # edge detection - waldos stripes make strong horizontal edges
+def ApplySobelEdgeDetection(images): # edge detection, waldos stripes make strong horizontal edges
     # undo normalization
-    mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
-    std  = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
+    mean = torch.tensor(IMAGENET_MEAN).view(1, 3, 1, 1)
+    std  = torch.tensor(IMAGENET_STD).view(1, 3, 1, 1)
     rgb  = (images * std + mean).clamp(0, 1)
 
     # convert to grayscale
@@ -82,8 +87,8 @@ def ApplySobelEdgeDetection(images): # edge detection - waldos stripes make stro
 
 
 def preprocess_batch(images): # takes [N, 3, 256, 256] and returns [N, 5, 256, 256]
-    hsv_mask = ApplyHSVMask(images)       # [N, 1, 256, 256] - red/white pixel mask
-    sobel = ApplySobelEdgeDetection(images) # [N, 1, 256, 256] - edge magnitude
+    hsv_mask = ApplyHSVMask(images)       # [N, 1, 256, 256] red/white pixel mask
+    sobel = ApplySobelEdgeDetection(images) # [N, 1, 256, 256] edge magnitude
 
     # stack RGB + HSV mask + sobel edges = 5 channels total
     # this gives the model extra hints about where waldo might be

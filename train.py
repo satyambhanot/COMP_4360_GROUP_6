@@ -1,5 +1,5 @@
 # train.py
-# this is the main training script - you run this from the project root
+# this is the main training script, you run this from the project root
 # like: python train.py
 #
 # what it needs to do:
@@ -9,7 +9,7 @@
 #      SSD uses two losses combined:
 #        smooth L1 loss for bounding box predictions (how far off are our boxes?)
 #        cross entropy loss for classification (is it waldo or not?)
-#   4. handle class imbalance - we have way more negative tiles than positive ones
+#   4. handle class imbalance, we have way more negative tiles than positive ones
 #      (like 14000 negative vs 56 positive) so we need to weight the loss or
 #      use hard negative mining so the model doesnt just learn to always say "no waldo"
 #   5. training loop: forward pass -> compute loss -> backward pass -> update weights

@@ -1,3 +1,11 @@
+# data_pipeline.py
+# this file handles everything related to getting our data ready for the model
+# it takes 19 raw wheres waldo images and their xml annotations,
+# chops them into smaller tiles at different sizes (64, 128, 256),
+# figures out which tiles actually contain waldo,
+# splits everything into train/val/test sets,
+# and provides a pytorch dataset and dataloader so other files can easily grab batches
+
 import os
 import json
 import random
@@ -6,20 +14,13 @@ from PIL import Image
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
-
-# figure out the project root so paths work no matter where you run from
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-# where our stuff lives
-RAW_IMAGES = os.path.join(PROJECT_ROOT, "data/raw/images")
-RAW_ANNOTATIONS = os.path.join(PROJECT_ROOT, "data/raw/annotations")
-PROCESSED = os.path.join(PROJECT_ROOT, "data/processed")
-
-# tile sizes we want to generate (multi-resolution like the paper says)
-TILE_SIZES = [64, 128, 256]
-
-# if at least this fraction of waldo is inside a tile, count it as positive
-OVERLAP_THRESHOLD = 0.5
+from config import (
+    RAW_IMAGES, RAW_ANNOTATIONS, PROCESSED,
+    TILE_SIZES, OVERLAP_THRESHOLD,
+    TRAIN_RATIO, VAL_RATIO, RANDOM_SEED,
+    INPUT_SIZE, BATCH_SIZE,
+    IMAGENET_MEAN, IMAGENET_STD
+)
 
 
 def parse_annotation(xml_path): # reads one xml file and pulls out the bounding box
@@ -103,7 +104,7 @@ def tile_image(image_id): # chop one image into tiles at all resolutions
     return tiles_info
 
 
-def make_splits(all_tiles, train_ratio=0.7, val_ratio=0.15): # split by image id so no leaking
+def make_splits(all_tiles, train_ratio=TRAIN_RATIO, val_ratio=VAL_RATIO): # split by image id so no leaking
     image_ids = list(set(t["image_id"] for t in all_tiles))
     random.shuffle(image_ids)
 
@@ -127,7 +128,7 @@ def make_splits(all_tiles, train_ratio=0.7, val_ratio=0.15): # split by image id
     return splits
 
 
-def run_pipeline():
+def run_pipeline(): # the main function that does everything, tiles all images and creates the splits
     print("starting tiling pipeline...")
 
     # get all image ids from the annotation folder
@@ -158,7 +159,7 @@ def run_pipeline():
         print(f"  {size}x{size}: {count} tiles ({pos} positive)")
 
     # split into train/val/test
-    random.seed(42) # reproducible splits
+    random.seed(RANDOM_SEED) # reproducible splits
     splits = make_splits(all_tiles)
 
     for split_name, split_tiles in splits.items():
@@ -172,7 +173,12 @@ def run_pipeline():
     print(f"\nsaved splits to {splits_path}")
 
 
-class WaldoTileDataset(Dataset): # pytorch dataset that loads tiles from splits.json
+class WaldoTileDataset(Dataset):
+    # pytorch dataset that loads tiles from splits.json
+    # when you grab a tile from this dataset it gives you three things:
+    #   image tensor [3, 256, 256] normalized for mobilenet
+    #   label (0 = no waldo, 1 = waldo is in this tile)
+    #   bbox [4] with waldos position inside the tile, or [0,0,0,0] if no waldo
 
     def __init__(self, split="train", tile_size=256):
         splits_path = os.path.join(PROCESSED, "splits.json")
@@ -184,9 +190,9 @@ class WaldoTileDataset(Dataset): # pytorch dataset that loads tiles from splits.
         self.tile_size = tile_size
 
         self.transform = transforms.Compose([
-            transforms.Resize((256, 256)), # everything goes to 256x256 for the backbone
+            transforms.Resize((INPUT_SIZE, INPUT_SIZE)), # everything goes to 256x256 for the backbone
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) # imagenet normalization
+            transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD) # imagenet normalization
         ])
 
     def __len__(self):
@@ -210,7 +216,9 @@ class WaldoTileDataset(Dataset): # pytorch dataset that loads tiles from splits.
         return img_tensor, label, bbox
 
 
-def get_dataloader(split="train", tile_size=256, batch_size=16, shuffle=True):
+def get_dataloader(split="train", tile_size=256, batch_size=BATCH_SIZE, shuffle=True):
+    # this is the main way other files load data
+    # just call get_dataloader() and you get batches of (images, labels, bboxes) ready to go
     dataset = WaldoTileDataset(split=split, tile_size=tile_size)
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
     return loader
@@ -220,12 +228,12 @@ if __name__ == "__main__":
     run_pipeline()
 
     # quick test to make sure the dataset and dataloader work
-    print("\n--- testing dataset ---")
+    print("\ntesting dataset")
     for size in TILE_SIZES:
         ds = WaldoTileDataset(split="train", tile_size=size)
         print(f"  {size}x{size} train set: {len(ds)} tiles")
 
-    print("\n--- testing dataloader ---")
+    print("\ntesting dataloader")
     loader = get_dataloader(split="train", tile_size=256, batch_size=4)
     images, labels, bboxes = next(iter(loader))
     print(f"  batch images shape: {images.shape}") # should be [4, 3, 256, 256]

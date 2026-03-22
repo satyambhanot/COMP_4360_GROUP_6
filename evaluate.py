@@ -10,7 +10,7 @@
 #      accuracy (what % of tiles did we classify correctly)
 #      precision (when we say waldo, how often are we right)
 #      recall (of all the tiles with waldo, how many did we find)
-#   5. visualize results - draw predicted bounding boxes on tiles
+#   5. visualize results, draw predicted bounding boxes on tiles
 #      and maybe stitch them back onto the full image to show
 #      where the model thinks waldo is
 #

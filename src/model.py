@@ -58,12 +58,12 @@ import pre_processing
 import MobileV2Backbone
 import ConcatenateAnchors
 import config
+from data_pipeline import get_dataloader
+from ssd import ssd_block
 
 import torch
 import torch.nn as nn
 
-from ssd import ssd_block
-from ConcatenateAnchors import concat_ssd_heads
 from torchvision.models.detection.anchor_utils import DefaultBoxGenerator
 from torchvision.models.detection._utils import BoxCoder
 import torchvision.ops as ops
@@ -72,11 +72,11 @@ class WaldoSSD(nn.Module):
     def __init__(
         self,
         backbone: nn.Module,
-        num_classes: int = 2,
-        num_heads: int = 4,
-        num_anchors: int = 4,
-        in_channels: int = 64,
-        kernel_size: int = 3,
+        num_classes: int = config.NUM_CLASSES,
+        num_heads: int = config.NUM_SSD_HEADS,
+        num_anchors: int = config.NUM_ANCHORS,
+        in_channels: int = config.BACKBONE_CHANNELS,
+        kernel_size: int = config.SSD_KERNEL_SIZE,
     ):
         super().__init__()
 
@@ -94,10 +94,10 @@ class WaldoSSD(nn.Module):
         # SSD heads
         self.blocks = nn.ModuleList([
             ssd_block(
-                in_channels=in_channels,
-                num_classes=num_classes,
-                kernel_size=kernel_size,
-                num_anchors=num_anchors
+                in_channels = in_channels,
+                num_classes = num_classes,
+                kernel_size = kernel_size,
+                num_anchors = num_anchors
             )
             for _ in range(num_heads)
         ])
@@ -124,7 +124,7 @@ class WaldoSSD(nn.Module):
             x = next_x
 
         # Concatenate predictions
-        locs, clss = concat_ssd_heads(locs, clss)
+        locs, clss = concatenate_all_heads(locs, clss)
 
         # Generate anchors
         anchors = self.anchor_generator(images, feature_maps)
@@ -136,7 +136,13 @@ class WaldoSSD(nn.Module):
 
 if __name__ == "__main__":
 
-    backbone = CreateWalsoModel()
+    # Generate Dataset
+    loader = get_dataloader()
+    images, labels, bboxes = next(iter(loader))
+    batch = [images, labels, bboxes]
+
+    # Pass through the model
+    backbone = PassBatchThroughMobileV2Backbone(batch)
     pred_boxed = WaldoSSD(backbone)
     print(pred_boxes)
 

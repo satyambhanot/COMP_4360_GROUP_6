@@ -109,6 +109,9 @@ class WaldoSSD(nn.Module):
 
         # The original input to the model
         images = x
+        
+        # Preprocess
+        x = preprocess_batch(images)
 
         # Backbone
         x = self.backbone(x)
@@ -136,13 +139,13 @@ class WaldoSSD(nn.Module):
 
 if __name__ == "__main__":
 
+    # Training Example
     # Generate Dataset
     loader = get_dataloader()
     images, labels, bboxes = next(iter(loader))
-    batch = [images, labels, bboxes]
 
     # Pass through the model
-    backbone = PassBatchThroughMobileV2Backbone(batch)
-    pred_boxed = WaldoSSD(backbone)
+    pred_boxed = WaldoSSD(x)
+
     print(pred_boxes)
 

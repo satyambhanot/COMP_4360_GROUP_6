@@ -54,7 +54,7 @@
 # TODO: build the WaldoDetector class with __init__ and forward
 # TODO: add a test at the bottom
 
-import pre_processing
+from pre_processing import preprocess_batch
 import MobileV2Backbone
 import ConcatenateAnchors
 import config
@@ -84,7 +84,10 @@ class WaldoSSD(nn.Module):
 
         # Configurate the anchors
         aspect_ratios = [[1.0, 2.0, 0.5]] * num_heads
-
+        
+        # Boxcoder
+        self.box_coder = BoxCoder(weights=(10.0, 10.0, 5.0, 5.0))
+        
         self.anchor_generator = DefaultBoxGenerator(
             aspect_ratios=aspect_ratios,
             min_ratio=0.07,

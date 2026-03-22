@@ -145,7 +145,7 @@ if __name__ == "__main__":
     images, labels, bboxes = next(iter(loader))
 
     # Pass through the model
-    pred_boxed = WaldoSSD(x)
+    pred_boxed = WaldoSSD(images)
 
     print(pred_boxes)
 

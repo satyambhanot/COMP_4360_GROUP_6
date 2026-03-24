@@ -161,4 +161,54 @@ def apply_nms(locs, cls_scores, anchors,
     return results
 
 
-# TODO: add test at the bottom
+if __name__ == "__main__":
+    # test with fake predictions to make sure everything works
+
+    # pretend we have 1 image with 10 anchor predictions
+    num_anchors = 10
+
+    # fake anchors scattered around the image
+    anchors = torch.tensor([
+        [50, 50, 30, 30],    # small box top left area
+        [55, 55, 30, 30],    # overlapping with the first one (should get filtered)
+        [200, 200, 40, 40],  # box in bottom right area
+        [100, 100, 25, 25],  # box in the middle
+        [105, 105, 25, 25],  # overlapping with middle box
+        [30, 180, 20, 20],   # box bottom left
+        [150, 50, 35, 35],   # box top right area
+        [155, 55, 35, 35],   # overlapping with top right
+        [128, 128, 50, 50],  # big box in center
+        [10, 10, 15, 15],    # small box in corner
+    ], dtype=torch.float32)
+
+    # fake offsets (small random shifts)
+    fake_locs = torch.randn(1, num_anchors, 4) * 0.1
+
+    # fake class scores where a few anchors have high waldo confidence
+    # column 0 is background, column 1 is waldo
+    fake_cls = torch.tensor([[
+        [5.0, -5.0],   # very confident background
+        [4.0, -4.0],   # confident background
+        [-3.0, 3.0],   # confident waldo
+        [-2.0, 2.0],   # somewhat confident waldo
+        [-1.5, 1.5],   # slightly confident waldo
+        [3.0, -3.0],   # confident background
+        [-4.0, 4.0],   # very confident waldo
+        [-3.5, 3.5],   # confident waldo
+        [1.0, -1.0],   # slightly background
+        [6.0, -6.0],   # very confident background
+    ]])
+
+    print("testing apply_nms with fake predictions...")
+    print(f"  input locs: {fake_locs.shape}")
+    print(f"  input cls: {fake_cls.shape}")
+    print(f"  anchors: {anchors.shape}")
+
+    results = apply_nms(fake_locs, fake_cls, anchors, confidence_threshold=0.5, iou_threshold=0.5)
+
+    for i, (boxes, scores) in enumerate(results):
+        print(f"\n  image {i}:")
+        print(f"    kept {boxes.shape[0]} predictions out of {num_anchors}")
+        if boxes.shape[0] > 0:
+            for j in range(boxes.shape[0]):
+                print(f"    box {j}: {boxes[j].tolist()}, score: {scores[j]:.4f}")

@@ -138,5 +138,70 @@ class WaldoDetector(nn.Module):
         all_sizes = [16, 8, 4, 2, 1]
         self.feature_sizes = all_sizes[:num_heads]
 
-    # TODO: add forward method
-    # TODO: add test at the bottom
+    def forward(self, images):
+        # images come in as [N, 3, 256, 256] from the dataloader
+
+        # step 1: preprocessing
+        # add extra channels based on which flags are enabled
+        # if both HSV and sobel are on we get 5 channels (the default)
+        # if only one is on we get 4 channels
+        # if both are off we just pass the raw RGB through
+        if self.use_hsv and self.use_sobel:
+            # full preprocessing, this is what we normally use
+            x = preprocess_batch(images) # [N, 5, 256, 256]
+        elif self.use_hsv and not self.use_sobel:
+            # only HSV mask, no sobel edges (for ablation study 1)
+            hsv_mask = ApplyHSVMask(images)
+            x = torch.cat([images, hsv_mask], dim=1) # [N, 4, 256, 256]
+        elif not self.use_hsv and self.use_sobel:
+            # only sobel edges, no HSV mask (for ablation study 1)
+            sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]],
+                                   dtype=torch.float32).view(1, 1, 3, 3)
+            sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]],
+                                   dtype=torch.float32).view(1, 1, 3, 3)
+            # run sobel on grayscale since we dont have the HSV mask
+            from config import IMAGENET_MEAN, IMAGENET_STD
+            mean = torch.tensor(IMAGENET_MEAN).view(1, 3, 1, 1)
+            std = torch.tensor(IMAGENET_STD).view(1, 3, 1, 1)
+            rgb = (images * std + mean).clamp(0, 1)
+            gray = (0.2989 * rgb[:, 0] + 0.5870 * rgb[:, 1] + 0.1140 * rgb[:, 2]).unsqueeze(1)
+            gx = F.conv2d(gray, sobel_x, padding=1)
+            gy = F.conv2d(gray, sobel_y, padding=1)
+            sobel = torch.sqrt(gx ** 2 + gy ** 2)
+            x = torch.cat([images, sobel], dim=1) # [N, 4, 256, 256]
+        else:
+            # no preprocessing at all, just raw RGB (for ablation study)
+            x = images # [N, 3, 256, 256]
+
+        # step 2: if we added extra channels, squish them back to 3 for the backbone
+        if self.channel_conv is not None:
+            x = self.channel_conv(x) # [N, 5 or 4, 256, 256] -> [N, 3, 256, 256]
+
+        # step 3: run through the mobilenet backbone to extract features
+        x = self.backbone(x) # [N, 3, 256, 256] -> [N, 64, 16, 16]
+
+        # step 4: pass through all SSD heads collecting predictions from each
+        # each head predicts loc (bounding box offsets) and cls (waldo vs background)
+        # then pools the feature map to half size for the next head
+        all_locs = []
+        all_cls = []
+
+        for head in self.ssd_heads:
+            loc, cls, x = head(x) # x gets pooled for the next head
+            all_locs.append(loc)
+            all_cls.append(cls)
+
+        # step 5: reshape and combine predictions from all heads
+        # concatenate_all_heads handles the reshaping from convolution format
+        # to flat rows and generates the anchor positions for each head
+        locs, cls_scores, anchors = concatenate_all_heads(
+            all_locs, all_cls, self.feature_sizes
+        )
+
+        # locs: [N, 1364, 4] predicted box offsets for every anchor
+        # cls_scores: [N, 1364, 2] waldo vs background scores for every anchor
+        # anchors: [1364, 4] the actual anchor positions on the image
+        # we always return the same thing whether training or evaluating
+        # train.py uses these raw predictions to compute the loss
+        # evaluate.py runs NMS on these to get the final filtered predictions
+        return locs, cls_scores, anchors

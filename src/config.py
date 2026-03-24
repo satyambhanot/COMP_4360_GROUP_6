@@ -47,8 +47,8 @@ WHITE_VAL_MIN = 0.7 # brightness above this = white
 BACKBONE_LAYERS = 11 # first N layers of mobilenetv2 to use as feature extractor
 BACKBONE_CHANNELS = 64 # output channels from the backbone (depends on BACKBONE_LAYERS)
 NUM_CLASSES = 2 # waldo or not waldo
-NUM_ANCHORS = 4 # anchor boxes per spatial position in each SSD head
-NUM_SSD_HEADS = 6 # number of SSD detection heads at different scales
+NUM_ANCHORS = 8 # anchor boxes per spatial position in each SSD head
+NUM_SSD_HEADS = 3 # number of SSD detection heads at different scales
 SSD_KERNEL_SIZE = 3
 
 # training

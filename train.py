@@ -236,5 +236,40 @@ def train_one_epoch(model, dataloader, optimizer, device):
     return avg_loss, avg_cls, avg_loc
 
 
-# TODO: add validation
-# TODO: add checkpoint saving
+def validate(model, dataloader, device):
+    # runs one pass through the validation data without updating weights
+    # we use this to check if the model is overfitting
+    # if train loss goes down but val loss goes up, the model is memorizing
+    # the training data instead of learning to generalize
+
+    model.eval() # put the model in eval mode
+
+    running_loss = 0.0
+    running_cls_loss = 0.0
+    running_loc_loss = 0.0
+    num_batches = 0
+
+    # torch.no_grad tells pytorch not to track gradients
+    # this saves memory and speeds things up since we dont need gradients for validation
+    with torch.no_grad():
+        for images, labels, bboxes in dataloader:
+            images = images.to(device)
+            labels = labels.to(device)
+            bboxes = bboxes.to(device)
+
+            locs, cls_scores, anchors = model(images)
+            loss, cls_loss, loc_loss = compute_loss(locs, cls_scores, anchors, labels, bboxes)
+
+            running_loss += loss.item()
+            running_cls_loss += cls_loss
+            running_loc_loss += loc_loss
+            num_batches += 1
+
+    avg_loss = running_loss / max(num_batches, 1)
+    avg_cls = running_cls_loss / max(num_batches, 1)
+    avg_loc = running_loc_loss / max(num_batches, 1)
+
+    return avg_loss, avg_cls, avg_loc
+
+
+# TODO: add main training loop with checkpoint saving

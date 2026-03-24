@@ -273,6 +273,8 @@ class WaldoSSD(nn.Module):
             final_scores = scores[keep]
             final_labels = labels[keep]
 
+            print(f"Final scores {final_scores}")
+
             # Pick the single best prediction
             best_idx = final_scores.argmax()
             print(f"\n\nBest IDX: {best_idx}\n\n")
@@ -287,7 +289,7 @@ class WaldoSSD(nn.Module):
 if __name__ == "__main__":
 
     # Testing
-    image = Image.open("./data/raw/images/1.jpg")
+    image = Image.open("./data/raw/images/3.jpg")
 
     # To take a large input image and convert it into something the model can use.
     tiles, tile_coords = create_tiles_from_image(image, 256, 5)             # Create the tiles.            

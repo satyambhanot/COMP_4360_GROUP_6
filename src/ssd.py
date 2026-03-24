@@ -31,7 +31,12 @@ class ssd_block(nn.Module):
     def forward(self, x):
         loc = self.loc(x)
         cls = self.cls(x)
-        x = self.pool(x)
+
+        # only pool if the feature map is bigger than 1x1
+        # the last SSD head gets a 1x1 input and pooling that would give 0x0 which crashes
+        # we still return loc and cls from the 1x1 head, we just skip the pooling
+        if x.shape[2] > 1 and x.shape[3] > 1:
+            x = self.pool(x)
 
         return loc, cls, x
 

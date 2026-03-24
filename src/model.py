@@ -155,19 +155,9 @@ class WaldoDetector(nn.Module):
             x = torch.cat([images, hsv_mask], dim=1) # [N, 4, 256, 256]
         elif not self.use_hsv and self.use_sobel:
             # only sobel edges, no HSV mask (for ablation study 1)
-            sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]],
-                                   dtype=torch.float32).view(1, 1, 3, 3)
-            sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]],
-                                   dtype=torch.float32).view(1, 1, 3, 3)
-            # run sobel on grayscale since we dont have the HSV mask
-            from config import IMAGENET_MEAN, IMAGENET_STD
-            mean = torch.tensor(IMAGENET_MEAN).view(1, 3, 1, 1)
-            std = torch.tensor(IMAGENET_STD).view(1, 3, 1, 1)
-            rgb = (images * std + mean).clamp(0, 1)
-            gray = (0.2989 * rgb[:, 0] + 0.5870 * rgb[:, 1] + 0.1140 * rgb[:, 2]).unsqueeze(1)
-            gx = F.conv2d(gray, sobel_x, padding=1)
-            gy = F.conv2d(gray, sobel_y, padding=1)
-            sobel = torch.sqrt(gx ** 2 + gy ** 2)
+            # we reuse the existing ApplySobelEdgeDetection function from pre_processing.py
+            # instead of duplicating the sobel code here
+            sobel = ApplySobelEdgeDetection(images)
             x = torch.cat([images, sobel], dim=1) # [N, 4, 256, 256]
         else:
             # no preprocessing at all, just raw RGB (for ablation study)

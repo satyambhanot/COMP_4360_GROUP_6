@@ -148,11 +148,13 @@ def compute_loss(locs, cls_scores, anchors, labels, bboxes):
 
         if label == 1:
             # this tile has waldo, convert the ground truth bbox to center format
-            gt_box = bbox_to_center(bboxes[i]).to(locs.device)
+            # bboxes are already on the right device because we moved them in the training loop
+            gt_box = bbox_to_center(bboxes[i])
 
             # find which anchor overlaps the most with the ground truth
             # we use IoU (intersection over union) to measure overlap
-            ious = compute_iou(gt_box, anchors.to(locs.device))
+            # anchors are already on the right device from concatenate_all_heads
+            ious = compute_iou(gt_box, anchors)
             best_anchor_idx = ious.argmax().item()
 
             # also mark any anchor with IoU above 0.5 as positive
@@ -173,7 +175,7 @@ def compute_loss(locs, cls_scores, anchors, labels, bboxes):
             if len(positive_indices) > 0:
                 for idx in positive_indices:
                     # encode the ground truth bbox as offsets from this anchor
-                    target_offsets = encode_ground_truth(gt_box, anchors[idx].to(locs.device))
+                    target_offsets = encode_ground_truth(gt_box, anchors[idx])
                     predicted_offsets = img_locs[idx]
 
                     # smooth L1 loss for bounding box regression

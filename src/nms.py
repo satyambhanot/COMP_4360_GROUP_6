@@ -55,6 +55,48 @@ def center_to_corners(boxes):
     return torch.stack([x1, y1, x2, y2], dim=1)
 
 
-# TODO: add decode_predictions function
+def decode_predictions(loc_preds, anchors):
+    # the SSD heads dont predict actual box positions
+    # they predict offsets from the anchor positions
+    # this function turns those offsets into actual box coordinates
+    #
+    # loc_preds is [num_anchors, 4] with predicted offsets (dx, dy, dw, dh)
+    # anchors is [num_anchors, 4] with anchor positions (cx, cy, w, h)
+    #
+    # the decoding formula:
+    #   predicted_cx = anchor_cx + (dx * anchor_w)
+    #     the offset dx says how far to shift the center horizontally
+    #     we multiply by anchor width so the offset is relative to the anchor size
+    #   predicted_cy = anchor_cy + (dy * anchor_h)
+    #     same thing but vertical
+    #   predicted_w = anchor_w * exp(dw)
+    #     the offset dw says how much to scale the width
+    #     we use exp so the width is always positive
+    #   predicted_h = anchor_h * exp(dh)
+    #     same thing for height
+    #
+    # i learned this decoding formula from the SSD paper
+    # (Liu et al, SSD: Single Shot MultiBox Detector, ECCV 2016)
+    # its the standard way all SSD implementations decode predictions
+
+    anchor_cx = anchors[:, 0]
+    anchor_cy = anchors[:, 1]
+    anchor_w = anchors[:, 2]
+    anchor_h = anchors[:, 3]
+
+    dx = loc_preds[:, 0]
+    dy = loc_preds[:, 1]
+    dw = loc_preds[:, 2]
+    dh = loc_preds[:, 3]
+
+    # apply the decoding formula
+    pred_cx = anchor_cx + dx * anchor_w
+    pred_cy = anchor_cy + dy * anchor_h
+    pred_w = anchor_w * torch.exp(dw)
+    pred_h = anchor_h * torch.exp(dh)
+
+    return torch.stack([pred_cx, pred_cy, pred_w, pred_h], dim=1)
+
+
 # TODO: add apply_nms function
 # TODO: add test at the bottom

@@ -194,6 +194,47 @@ def compute_loss(locs, cls_scores, anchors, labels, bboxes):
     return total_loss, cls_loss.item(), loc_loss.item() if isinstance(loc_loss, torch.Tensor) else loc_loss
 
 
-# TODO: add training loop
+def train_one_epoch(model, dataloader, optimizer, device):
+    # runs one full pass through the training data
+    # for each batch: forward pass, compute loss, backward pass, update weights
+    # returns the average loss for this epoch
+
+    model.train() # put the model in training mode
+
+    running_loss = 0.0
+    running_cls_loss = 0.0
+    running_loc_loss = 0.0
+    num_batches = 0
+
+    for images, labels, bboxes in dataloader:
+        # move everything to the gpu (or cpu if no gpu)
+        images = images.to(device)
+        labels = labels.to(device)
+        bboxes = bboxes.to(device)
+
+        # forward pass: run the tiles through the model
+        locs, cls_scores, anchors = model(images)
+
+        # compute the loss (both classification and localization)
+        loss, cls_loss, loc_loss = compute_loss(locs, cls_scores, anchors, labels, bboxes)
+
+        # backward pass: compute gradients
+        optimizer.zero_grad() # reset gradients from the previous batch
+        loss.backward() # compute new gradients based on the loss
+        optimizer.step() # update the model weights using the gradients
+
+        running_loss += loss.item()
+        running_cls_loss += cls_loss
+        running_loc_loss += loc_loss
+        num_batches += 1
+
+    # return average losses for the epoch
+    avg_loss = running_loss / max(num_batches, 1)
+    avg_cls = running_cls_loss / max(num_batches, 1)
+    avg_loc = running_loc_loss / max(num_batches, 1)
+
+    return avg_loss, avg_cls, avg_loc
+
+
 # TODO: add validation
 # TODO: add checkpoint saving

@@ -112,7 +112,88 @@ def encode_ground_truth(gt_box, anchor):
     return torch.tensor([dx, dy, dw, dh])
 
 
-# TODO: add compute_loss function
+def compute_loss(locs, cls_scores, anchors, labels, bboxes):
+    # computes the SSD loss for a batch of tiles
+    # this follows the standard SSD training approach from the paper
+    #
+    # locs: [N, 1364, 4] predicted offsets from the model
+    # cls_scores: [N, 1364, 2] raw logits (waldo vs background) from the model
+    # anchors: [1364, 4] anchor positions in [cx, cy, w, h] format
+    # labels: [N] tile labels (0 = no waldo, 1 = has waldo)
+    # bboxes: [N, 4] ground truth bboxes in [xmin, ymin, xmax, ymax] format
+    #
+    # returns the combined loss (cls_loss + loc_loss)
+
+    batch_size = locs.shape[0]
+    num_anchors = locs.shape[1]
+
+    total_cls_loss = 0.0
+    total_loc_loss = 0.0
+    num_positive = 0 # count how many positive anchors we found across the batch
+
+    for i in range(batch_size):
+        img_locs = locs[i] # [1364, 4]
+        img_cls = cls_scores[i] # [1364, 2]
+        label = labels[i].item() # 0 or 1
+
+        # create classification targets for every anchor
+        # on negative tiles: all anchors should predict background (class 0)
+        # on positive tiles: matched anchors predict waldo (class 1), rest predict background
+        cls_targets = torch.zeros(num_anchors, dtype=torch.long, device=locs.device)
+
+        if label == 1:
+            # this tile has waldo, convert the ground truth bbox to center format
+            gt_box = bbox_to_center(bboxes[i]).to(locs.device)
+
+            # find which anchor overlaps the most with the ground truth
+            # we use IoU (intersection over union) to measure overlap
+            ious = compute_iou(gt_box, anchors.to(locs.device))
+            best_anchor_idx = ious.argmax().item()
+
+            # also mark any anchor with IoU above 0.5 as positive
+            # this gives the model more positive examples to learn from
+            # instead of just the single best matching anchor
+            positive_mask = ious > 0.5
+            positive_mask[best_anchor_idx] = True # make sure the best one is always included
+
+            # set classification targets for matched anchors to waldo (class 1)
+            cls_targets[positive_mask] = 1
+
+            # compute localization loss only for the matched anchors
+            # we encode the ground truth as offsets from each matched anchor
+            # then compare against what the model predicted
+            positive_indices = positive_mask.nonzero(as_tuple=True)[0]
+            num_positive += len(positive_indices)
+
+            if len(positive_indices) > 0:
+                for idx in positive_indices:
+                    # encode the ground truth bbox as offsets from this anchor
+                    target_offsets = encode_ground_truth(gt_box, anchors[idx].to(locs.device))
+                    predicted_offsets = img_locs[idx]
+
+                    # smooth L1 loss for bounding box regression
+                    # this is the standard loss used in SSD and other object detectors
+                    # its less sensitive to outliers than MSE loss
+                    # torch.nn.functional.smooth_l1_loss is from pytorch
+                    total_loc_loss += F.smooth_l1_loss(predicted_offsets, target_offsets)
+
+        # classification loss using cross entropy
+        # this is computed for all 1364 anchors on every tile
+        # cross entropy handles the softmax internally so we pass raw logits
+        # torch.nn.functional.cross_entropy is from pytorch
+        total_cls_loss += F.cross_entropy(img_cls, cls_targets)
+
+    # average the losses across the batch
+    cls_loss = total_cls_loss / batch_size
+    loc_loss = total_loc_loss / max(num_positive, 1) # avoid division by zero if no positives
+
+    # combine both losses
+    # the cls loss teaches "is waldo here?" and the loc loss teaches "where exactly?"
+    total_loss = cls_loss + loc_loss
+
+    return total_loss, cls_loss.item(), loc_loss.item() if isinstance(loc_loss, torch.Tensor) else loc_loss
+
+
 # TODO: add training loop
 # TODO: add validation
 # TODO: add checkpoint saving

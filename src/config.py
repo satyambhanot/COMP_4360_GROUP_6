@@ -48,7 +48,7 @@ BACKBONE_LAYERS = 11 # first N layers of mobilenetv2 to use as feature extractor
 BACKBONE_CHANNELS = 64 # output channels from the backbone (depends on BACKBONE_LAYERS)
 NUM_CLASSES = 2 # waldo or not waldo
 NUM_ANCHORS = 4 # anchor boxes per spatial position in each SSD head
-NUM_SSD_HEADS = 6 # number of SSD detection heads at different scales
+NUM_SSD_HEADS = 5 # backbone gives 16x16, each head halves it: 16, 8, 4, 2, 1 thats 5 heads
 SSD_KERNEL_SIZE = 3
 
 # data augmentation

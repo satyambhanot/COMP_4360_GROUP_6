@@ -51,6 +51,27 @@ NUM_ANCHORS = 4 # anchor boxes per spatial position in each SSD head
 NUM_SSD_HEADS = 6 # number of SSD detection heads at different scales
 SSD_KERNEL_SIZE = 3
 
+# data augmentation
+# we have a huge class imbalance problem (about 14000 negative tiles vs 56 positive)
+# if we dont do anything about it the model will just learn to always say "no waldo"
+# and get 99.6% accuracy while being completely useless at actually finding waldo
+#
+# to fix this we do two things:
+#   1. weighted sampling: positive tiles get picked more often during training
+#      we compute the weight dynamically based on the actual counts
+#      and divide by SAMPLING_BALANCE_FACTOR so its not a full 50/50 split
+#      a factor of 5 means roughly 1 positive tile for every 5 negatives
+#   2. color jitter: each time the model sees a positive tile it looks slightly different
+#      random changes to brightness, contrast, and saturation
+#      this stops the model from just memorizing the exact 56 positive tiles
+#      we only do this on positive training tiles, not on val/test
+#      and we only change colors not positions so the bounding box stays the same
+AUGMENT_TRAINING = True
+SAMPLING_BALANCE_FACTOR = 5 # higher means less aggressive balancing
+COLOR_JITTER_BRIGHTNESS = 0.2
+COLOR_JITTER_CONTRAST = 0.2
+COLOR_JITTER_SATURATION = 0.2
+
 # training
 # will be used by train.py
 LEARNING_RATE = 0.001

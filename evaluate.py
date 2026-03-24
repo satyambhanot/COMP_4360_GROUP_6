@@ -91,3 +91,47 @@
 #   across tile boundaries to merge them into one final prediction
 
 # TODO: implement once the model is trained
+
+from PIL import Image, ImageDraw
+
+
+def draw_boxes(image, boxes, labels=None, scores=None, color="red", width=2):
+    # takes a PIL image and draws bounding boxes on it
+    # used for visualizing what the model predicted
+    # green boxes for correct predictions, red for wrong ones
+    draw = ImageDraw.Draw(image)
+
+    for i, box in enumerate(boxes):
+        x_min, y_min, x_max, y_max = box.tolist()
+
+        draw.rectangle([x_min, y_min, x_max, y_max], outline=color, width=width)
+
+        text = ""
+        if labels is not None:
+            text += f"{labels[i]}"
+        if scores is not None:
+            text += f": {scores[i]:.2f}"
+
+        if text:
+            draw.text((x_min, y_min), text, fill=color)
+
+    return image
+
+
+def create_tiles_from_image(image, tile_size, overlap):
+    # takes a full wheres waldo image and chops it into tiles
+    # this is for the demo where we run the trained model on a new image
+    # we keep track of each tiles position so we can map predictions
+    # back to the original image later
+    tiles = []
+    tile_coords = []
+
+    width, height = image.size
+
+    for h in range(0, height, tile_size - overlap):
+        for w in range(0, width, tile_size - overlap):
+            tile = image.crop((w, h, w + tile_size, h + tile_size))
+            tiles.append(tile)
+            tile_coords.append((w, h))
+
+    return tiles, tile_coords

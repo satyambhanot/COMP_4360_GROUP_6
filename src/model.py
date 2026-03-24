@@ -205,3 +205,45 @@ class WaldoDetector(nn.Module):
         # train.py uses these raw predictions to compute the loss
         # evaluate.py runs NMS on these to get the final filtered predictions
         return locs, cls_scores, anchors
+
+
+if __name__ == "__main__":
+    # quick test to make sure all the pieces connect properly
+    # load a small batch of real tiles and run them through the model
+
+    print("loading a batch of tiles...")
+    loader = get_dataloader(split="train", tile_size=256, batch_size=4)
+    images, labels, bboxes = next(iter(loader))
+    print(f"input images: {images.shape}") # should be [4, 3, 256, 256]
+
+    # test the full model with all preprocessing on (default)
+    print("\ntesting full model (HSV + Sobel)...")
+    model = WaldoDetector(use_hsv=True, use_sobel=True)
+    model.eval()
+    with torch.no_grad():
+        locs, cls_scores, anchors = model(images)
+    print(f"  loc predictions: {locs.shape}") # [4, 1364, 4]
+    print(f"  cls predictions: {cls_scores.shape}") # [4, 1364, 2]
+    print(f"  anchors: {anchors.shape}") # [1364, 4]
+    print(f"  total anchors: {anchors.shape[0]}")
+
+    # test with no preprocessing (for ablation comparison)
+    print("\ntesting model with no preprocessing (raw RGB only)...")
+    model_raw = WaldoDetector(use_hsv=False, use_sobel=False)
+    model_raw.eval()
+    with torch.no_grad():
+        locs2, cls2, anchors2 = model_raw(images)
+    print(f"  loc predictions: {locs2.shape}") # [4, 1364, 4]
+    print(f"  cls predictions: {cls2.shape}") # [4, 1364, 2]
+
+    # test with fewer heads (for model size ablation)
+    print("\ntesting model with 3 SSD heads...")
+    model_small = WaldoDetector(num_heads=3)
+    model_small.eval()
+    with torch.no_grad():
+        locs3, cls3, anchors3 = model_small(images)
+    print(f"  loc predictions: {locs3.shape}") # should have fewer anchors
+    print(f"  cls predictions: {cls3.shape}")
+    print(f"  anchors: {anchors3.shape}")
+    # 3 heads: 16x16 + 8x8 + 4x4 = 1024 + 256 + 64 = 1344 anchors
+    print(f"  total anchors: {anchors3.shape[0]}")

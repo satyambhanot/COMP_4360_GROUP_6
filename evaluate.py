@@ -278,6 +278,160 @@ def plot_confidence_distribution(confidences, labels):
     print(f"saved confidence distribution to results/confidence_distribution.png")
 
 
-# TODO: add visualize_samples
-# TODO: add run_demo
-# TODO: add main block
+def visualize_samples(model, dataloader, device, num_samples=5):
+    # grabs some test tiles and draws the model predictions on them
+    # saves the images so we can put them in the report
+    # we try to get a mix of true positives, false positives, and false negatives
+
+    tp_images = [] # correctly found waldo
+    fp_images = [] # falsely said waldo
+    fn_images = [] # missed waldo
+
+    with torch.no_grad():
+        for images, labels, bboxes in dataloader:
+            images = images.to(device)
+            locs, cls_scores, anchors = model(images)
+            nms_results = apply_nms(locs, cls_scores, anchors)
+
+            for i in range(images.shape[0]):
+                boxes, scores = nms_results[i]
+                label = labels[i].item()
+                predicted = 1 if boxes.shape[0] > 0 else 0
+
+                # unnormalize the image so it looks like a real photo
+                img_tensor = unnormalize(images[i].cpu())
+                # convert tensor to PIL image for drawing
+                img_pil = transforms.ToPILImage()(img_tensor)
+
+                if predicted == 1 and label == 1 and len(tp_images) < num_samples:
+                    img_pil = draw_boxes(img_pil, boxes.cpu(), scores=scores.cpu(), color="green")
+                    tp_images.append(img_pil)
+
+                elif predicted == 1 and label == 0 and len(fp_images) < num_samples:
+                    img_pil = draw_boxes(img_pil, boxes.cpu(), scores=scores.cpu(), color="red")
+                    fp_images.append(img_pil)
+
+                elif predicted == 0 and label == 1 and len(fn_images) < num_samples:
+                    # draw the ground truth box so we can see where waldo actually was
+                    gt_box = bboxes[i].unsqueeze(0)
+                    img_pil = draw_boxes(img_pil, gt_box, color="yellow")
+                    fn_images.append(img_pil)
+
+            # stop if we have enough samples of each type
+            if len(tp_images) >= num_samples and len(fp_images) >= num_samples and len(fn_images) >= num_samples:
+                break
+
+    # save the sample images
+    for j, img in enumerate(tp_images):
+        img.save(os.path.join(RESULTS_DIR, f"tp_{j}.png"))
+    for j, img in enumerate(fp_images):
+        img.save(os.path.join(RESULTS_DIR, f"fp_{j}.png"))
+    for j, img in enumerate(fn_images):
+        img.save(os.path.join(RESULTS_DIR, f"fn_{j}.png"))
+
+    print(f"saved {len(tp_images)} true positive, {len(fp_images)} false positive, {len(fn_images)} false negative samples to results/")
+
+
+def run_demo(model, device, image_path=None):
+    # takes a full wheres waldo image, tiles it up, runs every tile
+    # through the model, and draws boxes where it thinks waldo is
+    # this is the final "look it found waldo" image for the presentation
+
+    # pick the first test image if none specified
+    if image_path is None:
+        raw_images = sorted(os.listdir(RAW_IMAGES))
+        if len(raw_images) == 0:
+            print("no images found in data/raw/images")
+            return
+        image_path = os.path.join(RAW_IMAGES, raw_images[0])
+
+    print(f"running demo on {image_path}...")
+    image = Image.open(image_path).convert("RGB")
+
+    # tile the image the same way data_pipeline does
+    tiles, tile_coords = create_tiles_from_image(image, INPUT_SIZE, overlap=0)
+
+    # apply the same transforms the dataloader uses
+    transform = transforms.Compose([
+        transforms.Resize((INPUT_SIZE, INPUT_SIZE)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)
+    ])
+
+    # process tiles in batches to keep it fast
+    all_detections = [] # (x_offset, y_offset, boxes, scores) for each tile with detections
+
+    for batch_start in range(0, len(tiles), BATCH_SIZE):
+        batch_tiles = tiles[batch_start:batch_start + BATCH_SIZE]
+        batch_coords = tile_coords[batch_start:batch_start + BATCH_SIZE]
+
+        # transform tiles to tensors and stack into a batch
+        tile_tensors = torch.stack([transform(t) for t in batch_tiles])
+        tile_tensors = tile_tensors.to(device)
+
+        with torch.no_grad():
+            locs, cls_scores, anchors = model(tile_tensors)
+            nms_results = apply_nms(locs, cls_scores, anchors)
+
+        for i in range(len(batch_tiles)):
+            boxes, scores = nms_results[i]
+            if boxes.shape[0] > 0:
+                w_off, h_off = batch_coords[i]
+                # map tile coordinates back to the original image
+                # the boxes from NMS are relative to the tile
+                # we add the tiles position offset to get image level coordinates
+                adjusted_boxes = boxes.cpu().clone()
+                adjusted_boxes[:, 0] += w_off # x1
+                adjusted_boxes[:, 1] += h_off # y1
+                adjusted_boxes[:, 2] += w_off # x2
+                adjusted_boxes[:, 3] += h_off # y2
+                all_detections.append((adjusted_boxes, scores.cpu()))
+
+    # draw all detections on the original full image
+    for boxes, scores in all_detections:
+        image = draw_boxes(image, boxes, scores=scores, color="green", width=3)
+
+    demo_path = os.path.join(RESULTS_DIR, "demo_full_image.png")
+    image.save(demo_path)
+    print(f"found detections in {len(all_detections)} tiles")
+    print(f"saved demo image to {demo_path}")
+
+
+if __name__ == "__main__":
+    # make sure the results directory exists
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+
+    # load the trained model
+    model = load_model()
+    if model is None:
+        exit()
+
+    # load the test data
+    print("\nloading test data...")
+    test_loader = get_dataloader(split="test", tile_size=256, batch_size=BATCH_SIZE, shuffle=False)
+    print(f"  test set: {len(test_loader.dataset)} tiles")
+
+    # run predictions on every test tile
+    print("\nrunning predictions on test set...")
+    predictions, labels, confidences, nms_results = run_predictions(model, test_loader, device)
+
+    # compute and print metrics
+    metrics = compute_metrics(predictions, labels)
+
+    # plot the confidence distribution
+    print("\nplotting confidence distribution...")
+    plot_confidence_distribution(confidences, labels)
+
+    # plot training curves if we have the history
+    print("\nplotting training curves...")
+    plot_training_curves()
+
+    # save sample visualization images
+    print("\nvisualizing sample tiles...")
+    visualize_samples(model, test_loader, device)
+
+    # run the full image demo
+    print("\nrunning full image demo...")
+    run_demo(model, device)
+
+    print("\nevaluation complete! check the results/ folder for all outputs")

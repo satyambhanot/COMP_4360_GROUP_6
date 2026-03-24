@@ -73,6 +73,70 @@ from data_pipeline import get_dataloader
 import torch.nn.functional as F
 
 
-# placeholder for now, will be replaced in next commits
-# TODO: build the WaldoDetector class with __init__ and forward
-# TODO: add a test at the bottom
+class WaldoDetector(nn.Module):
+
+    def __init__(self, use_hsv=True, use_sobel=True, use_pretrained=True, num_heads=NUM_SSD_HEADS):
+        super().__init__()
+
+        # save these flags so forward knows what preprocessing to do
+        self.use_hsv = use_hsv
+        self.use_sobel = use_sobel
+
+        # figure out how many input channels we have after preprocessing
+        # starts at 3 for RGB, then we add 1 for HSV mask and 1 for sobel if enabled
+        self.input_channels = 3
+        if use_hsv:
+            self.input_channels += 1 # HSV mask adds 1 channel
+        if use_sobel:
+            self.input_channels += 1 # sobel edges adds 1 channel
+
+        # if we have more than 3 channels we need a 1x1 conv to squish them back to 3
+        # because mobilenet was trained on 3 channel images and expects 3 channels
+        # this is a learnable layer so the model figures out the best way to combine them
+        # if preprocessing is completely off (just raw RGB) we skip this
+        if self.input_channels > 3:
+            self.channel_conv = nn.Conv2d(self.input_channels, 3, kernel_size=1)
+        else:
+            self.channel_conv = None # no need for this layer if we already have 3 channels
+
+        # load mobilenet and grab only the first BACKBONE_LAYERS layers
+        # we load it once here and reuse it for every batch instead of loading it fresh each time
+        # use_pretrained controls whether we start with imagenet weights or random weights
+        # this is useful for our ablation study where we test if transfer learning helps
+        if use_pretrained:
+            mobilenet = models.mobilenet_v2(weights='DEFAULT')
+        else:
+            mobilenet = models.mobilenet_v2(weights=None)
+
+        self.backbone = mobilenet.features[:BACKBONE_LAYERS]
+
+        # freeze the backbone weights so training doesnt mess up what mobilenet already learned
+        # the backbone just extracts features, we dont want to change how it does that
+        # gradients still flow through the backbone to reach the 1x1 conv
+        # but the backbones own weights dont get updated
+        for param in self.backbone.parameters():
+            param.requires_grad = False
+
+        # create the SSD detection heads using nn.ModuleList
+        # we use ModuleList instead of a regular python list so pytorch knows about them
+        # this way their weights get saved in checkpoints and moved to GPU properly
+        # each head takes 64 channels from the backbone and predicts loc and cls
+        self.ssd_heads = nn.ModuleList([
+            ssd_block(
+                in_channels=BACKBONE_CHANNELS,
+                num_classes=NUM_CLASSES,
+                kernel_size=SSD_KERNEL_SIZE,
+                num_anchors=NUM_ANCHORS
+            )
+            for _ in range(num_heads)
+        ])
+
+        # the feature sizes that each head will see
+        # backbone outputs 16x16, each head halves it: 16, 8, 4, 2, 1
+        # we need this list for concatenate_all_heads so it knows the grid sizes
+        # if someone uses fewer heads for ablation we only take the first N sizes
+        all_sizes = [16, 8, 4, 2, 1]
+        self.feature_sizes = all_sizes[:num_heads]
+
+    # TODO: add forward method
+    # TODO: add test at the bottom

@@ -72,6 +72,11 @@ COLOR_JITTER_BRIGHTNESS = 0.2
 COLOR_JITTER_CONTRAST = 0.2
 COLOR_JITTER_SATURATION = 0.2
 
+# nms (non maximum suppression)
+# these control how we filter the models predictions during evaluation
+NMS_CONFIDENCE_THRESHOLD = 0.5 # predictions below this confidence get thrown away
+NMS_IOU_THRESHOLD = 0.5 # if two boxes overlap more than this we keep only the better one
+
 # training
 # will be used by train.py
 LEARNING_RATE = 0.001

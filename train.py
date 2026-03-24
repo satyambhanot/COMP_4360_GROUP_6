@@ -18,6 +18,7 @@
 import sys
 import os
 import time
+import json
 
 # add the src folder to the path so we can import our modules
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
@@ -311,6 +312,10 @@ if __name__ == "__main__":
     best_val_loss = float("inf")
     best_epoch = 0
 
+    # save loss history so evaluate.py can plot training curves later
+    # we store every epochs losses in a list and save to json at the end
+    history = {"train_loss": [], "val_loss": [], "train_cls": [], "val_cls": [], "train_loc": [], "val_loc": []}
+
     # make sure the checkpoints directory exists
     os.makedirs(CHECKPOINTS_DIR, exist_ok=True)
 
@@ -325,6 +330,14 @@ if __name__ == "__main__":
         val_loss, val_cls, val_loc = validate(model, val_loader, device)
 
         epoch_time = time.time() - epoch_start
+
+        # record the losses for this epoch so we can plot curves later
+        history["train_loss"].append(train_loss)
+        history["val_loss"].append(val_loss)
+        history["train_cls"].append(train_cls)
+        history["val_cls"].append(val_cls)
+        history["train_loc"].append(train_loc)
+        history["val_loc"].append(val_loc)
 
         # check if this is the best model so far
         saved = ""
@@ -358,8 +371,14 @@ if __name__ == "__main__":
               f"  val loss: {val_loss:.4f} (cls: {val_cls:.4f}, loc: {val_loc:.4f})"
               f"{saved}")
 
+    # save the training history to a json file so evaluate.py can plot curves
+    history_path = os.path.join(CHECKPOINTS_DIR, "training_history.json")
+    with open(history_path, "w") as f:
+        json.dump(history, f, indent=2)
+
     # print the final summary
     total_time = time.time() - start_time
     print(f"\ntraining complete in {total_time:.1f} seconds")
     print(f"best validation loss: {best_val_loss:.4f} at epoch {best_epoch}")
     print(f"checkpoints saved to {CHECKPOINTS_DIR}")
+    print(f"training history saved to {history_path}")

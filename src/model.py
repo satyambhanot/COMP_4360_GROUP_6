@@ -67,6 +67,65 @@ import torch.nn as nn
 from torchvision.models.detection.anchor_utils import DefaultBoxGenerator
 from torchvision.models.detection._utils import BoxCoder
 import torchvision.ops as ops
+from torchvision.ops import nms
+
+def apply_nms(bbox_preds, class_preds, conf_threshold=0.3, iou_threshold=0.5):
+    """
+    bbox_preds: (N,4) tensor of predicted boxes
+    class_preds: (N,num_classes) tensor of predicted class scores
+    conf_threshold: minimum score to consider a box
+    iou_threshold: NMS IoU threshold
+    """
+    final_boxes = []
+    final_scores = []
+    final_labels = []
+
+    num_classes = class_preds.shape[1]
+
+    for cls in range(1, num_classes):  # usually skip background class 0
+        scores = class_preds[:, cls]
+        mask = scores > conf_threshold  # filter low-confidence boxes
+        if mask.sum() == 0:
+            continue
+
+        boxes = bbox_preds[mask]
+        scores = scores[mask]
+
+        keep = nms(boxes, scores, iou_threshold)
+
+        final_boxes.append(boxes[keep])
+        final_scores.append(scores[keep])
+        final_labels.append(torch.full((len(keep),), cls, dtype=torch.int64, device=bbox_preds.device))
+
+    if len(final_boxes) == 0:
+        return torch.empty((0,4)), torch.empty((0,)), torch.empty((0,), dtype=torch.int64)
+
+    final_boxes = torch.cat(final_boxes, dim=0)
+    final_scores = torch.cat(final_scores, dim=0)
+    final_labels = torch.cat(final_labels, dim=0)
+
+    return final_boxes, final_scores, final_labels
+
+def create_tiles_from_image(image: Image, tile_size: int, overlap: int):
+    tiles = []
+    tile_coords = []
+    
+    width, height = image.size
+
+    for h in range(0, height, height - overlap):
+        for w in range(0, width, width - overlap):
+            # Add some padding if its needed
+            pad_bottom = max(0, (h + tile_size) - height)
+            pad_right  = max(0, (w + tile_size) - width)
+
+            # Create the tile as a section of the original image
+            tile = image[h:h + tile_size, w:w + tile_size]
+
+            # Save the tile and the their offsets in the original image
+            tiles.append(tile)
+            tile_coords.append((x, y))  # keep global offset
+
+    return tiles, tile_coords
 
 class WaldoSSD(nn.Module):
     def __init__(
@@ -77,24 +136,22 @@ class WaldoSSD(nn.Module):
         num_anchors: int = config.NUM_ANCHORS,
         in_channels: int = config.BACKBONE_CHANNELS,
         kernel_size: int = config.SSD_KERNEL_SIZE,
+        is_training: bool = False
     ):
         super().__init__()
-
+        # Backbone
         self.backbone = backbone
 
-        # Configurate the anchors
-        aspect_ratios = [[1.0, 2.0, 0.5]] * num_heads
-        
-        # Boxcoder
-        self.box_coder = BoxCoder(weights=(10.0, 10.0, 5.0, 5.0))
-        
-        self.anchor_generator = DefaultBoxGenerator(
-            aspect_ratios=aspect_ratios,
-            min_ratio=0.07,
-            max_ratio=0.9
+        # Anchor Setup
+        self.box_coder = BoxCoder(weights=(10.0, 10.0, 5.0, 5.0))   # Set up BoxCoder to calculate positioning/size deltas for ground truth boxes relative to the anchors. Weights are used to scale regression targets (x, y, w, h).
+        self.aspect_ratios = [[1.0, 2.0, 0.5]] * num_heads          # Configurate the anchors (Square box, wide rectangle box, tall rectangle box).
+        self.anchor_generator = DefaultBoxGenerator(                # Creates the anchors
+            aspect_ratios = aspect_ratios,                              # Use the aspect ratios for the boxes
+            min_ratio = 0.07,                                           # The smallest an aspect ratio can be scaled relative to the image size
+            max_ratio = 0.9                                             # The maximum amount an aspect ration can be scaled relative to the image size
         )
 
-        # SSD heads
+        # SSD Heads
         self.blocks = nn.ModuleList([
             ssd_block(
                 in_channels = in_channels,
@@ -105,40 +162,62 @@ class WaldoSSD(nn.Module):
             for _ in range(num_heads)
         ])
 
-    def forward(self, x):
-        locs = []
-        clss = []
+    def forward(self, image):
+
+        offset_preds = []
+        class_preds = []
         feature_maps = []
 
-        # The original input to the model
-        images = x
+        image_batch = None
         
-        # Preprocess
-        x = preprocess_batch(images)
+        # For evaluation
+        tile_coords = None
+        tiles = None
 
-        # Backbone
-        x = self.backbone(x)
-
-        # SSD heads
+        # To take a large input image and convert it into something the model can use.
+        tile_coords, tiles = create_tiles_from_image(image)     # Create the tiles.            
+        transform = transforms.toTensor()                       # Transform function to convert from a PIL image to a tensor.
+        image_batch = [transform(img) for img in tiles, dim=0]  # Create a batch of images that can be passed through the model.
+        
+        processed_batch = preprocess_batch(image_batch)         # Preprocess the images by applying HSV and the Sobol edge detector.
+        feature_map = self.backbone(processed_batch)            # Pass the preprocessed images to the backbone.
+        
+        # Pass the feature maps generated by the backbone to the SSD heads.
         for block in self.blocks:
-            loc, cls, next_x = block(x)
+            offset_pred, class_pred, next_feature_map = block(feature_maps) # Get preditions from the block.
 
-            locs.append(loc)
-            clss.append(cls)
-            feature_maps.append(x)
+            offset_preds.append(offset_pred)    # Save the offset predictions for NMS / training.
+            class_preds.append(class_pred)      # Save the class prediction for NMS / training.
+            feature_map = next_feature_map      # Setup the feature maps for the next SSD block. 
 
-            x = next_x
+        offset_preds = torch.cat(offset_preds, dim=1)  # (batch, total_anchors, 4)
+        class_preds  = torch.cat(class_preds, dim=1)   # (batch, total_anchors, num_classes)
 
-        # Concatenate predictions
-        locs, clss = concatenate_all_heads(locs, clss)
-
-        # Generate anchors
-        anchors = self.anchor_generator(images, feature_maps)
+        anchors = self.anchor_generator(image_batch, feature_maps)  # depends on your implementation
         
-        #return locs, clss, anchors
+        # Output changes if its training or not
+        if self.training:
+            return offset_preds, class_preds, anchors
+
+        if not self.training:
+            # Get the bounding box predicitions
+            bbox_preds = self.box_coder.decode(location_preds, anchors)
+
+            # Adjust for tile positions
+            for i, (w_off, h_off) in enumerate(tile_coords):
+                bbox_preds[i, :, 0] += w_off  # Min width
+                bbox_preds[i, :, 2] += w_off  # Max width
+                bbox_preds[i, :, 1] += h_off  # Min height
+                bbox_preds[i, :, 3] += h_off  # Max height
+    
+        # Flatten all tile predictions into one batch
+        bbox_preds = bbox_preds.view(-1, 4)
+        class_preds = class_preds.view(-1, class_preds.size(-1))
+
+        # Non-Maximum Suppression
+        final_bbox_pred, final_bbox_score, final_label = apply_nms(bbox_preds, class_preds)
         
-        pred_boxes = box_coder.decode(locs, anchors)
-        return pred_boxes
+        return final_boxes, final_scores, final_labels
 
 if __name__ == "__main__":
 

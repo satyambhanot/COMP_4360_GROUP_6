@@ -128,7 +128,10 @@ def compute_loss(locs, cls_scores, anchors, labels, bboxes):
     num_anchors = locs.shape[1]
 
     total_cls_loss = 0.0
-    total_loc_loss = 0.0
+    # we initialize loc_loss as a tensor on the same device as the predictions
+    # so the return type is always consistent whether or not we had positive tiles
+    # if we used a plain float (0.0) it would cause issues when we call .item() later
+    total_loc_loss = torch.tensor(0.0, device=locs.device)
     num_positive = 0 # count how many positive anchors we found across the batch
 
     for i in range(batch_size):
@@ -191,7 +194,7 @@ def compute_loss(locs, cls_scores, anchors, labels, bboxes):
     # the cls loss teaches "is waldo here?" and the loc loss teaches "where exactly?"
     total_loss = cls_loss + loc_loss
 
-    return total_loss, cls_loss.item(), loc_loss.item() if isinstance(loc_loss, torch.Tensor) else loc_loss
+    return total_loss, cls_loss.item(), loc_loss.item()
 
 
 def train_one_epoch(model, dataloader, optimizer, device):

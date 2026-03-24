@@ -272,4 +272,87 @@ def validate(model, dataloader, device):
     return avg_loss, avg_cls, avg_loc
 
 
-# TODO: add main training loop with checkpoint saving
+if __name__ == "__main__":
+    print("starting training...")
+    start_time = time.time()
+
+    # create the model and move it to the gpu
+    model = WaldoDetector()
+    model = model.to(device)
+    print(f"model created with {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable parameters")
+
+    # create the optimizer
+    # we use Adam because it adjusts the learning rate for each parameter automatically
+    # which usually works well without much tuning
+    # we only pass the parameters that require gradients (not the frozen backbone)
+    # torch.optim.Adam is a standard pytorch optimizer
+    optimizer = torch.optim.Adam(
+        filter(lambda p: p.requires_grad, model.parameters()),
+        lr=LEARNING_RATE
+    )
+
+    # load the train and validation dataloaders
+    # the train loader uses weighted sampling to handle class imbalance
+    # the val loader just loads tiles normally without any augmentation
+    print("loading data...")
+    train_loader = get_dataloader(split="train", tile_size=256, batch_size=BATCH_SIZE)
+    val_loader = get_dataloader(split="val", tile_size=256, batch_size=BATCH_SIZE, shuffle=False)
+    print(f"  train: {len(train_loader.dataset)} tiles")
+    print(f"  val: {len(val_loader.dataset)} tiles")
+
+    # keep track of the best validation loss so we know when to save
+    best_val_loss = float("inf")
+    best_epoch = 0
+
+    # make sure the checkpoints directory exists
+    os.makedirs(CHECKPOINTS_DIR, exist_ok=True)
+
+    # the main training loop
+    for epoch in range(NUM_EPOCHS):
+        epoch_start = time.time()
+
+        # train for one epoch
+        train_loss, train_cls, train_loc = train_one_epoch(model, train_loader, optimizer, device)
+
+        # validate to check for overfitting
+        val_loss, val_cls, val_loc = validate(model, val_loader, device)
+
+        epoch_time = time.time() - epoch_start
+
+        # check if this is the best model so far
+        saved = ""
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            best_epoch = epoch + 1
+
+            # save the best model checkpoint
+            # we save both the model weights and the optimizer state
+            # so we can resume training later if needed
+            # torch.save is the standard pytorch way to save models
+            torch.save({
+                "epoch": epoch + 1,
+                "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "val_loss": val_loss,
+            }, os.path.join(CHECKPOINTS_DIR, "best_model.pth"))
+            saved = " [saved best]"
+
+        # always save the last model so we can resume from where we stopped
+        torch.save({
+            "epoch": epoch + 1,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "val_loss": val_loss,
+        }, os.path.join(CHECKPOINTS_DIR, "last_model.pth"))
+
+        # print a summary for this epoch
+        print(f"epoch {epoch + 1}/{NUM_EPOCHS} ({epoch_time:.1f}s)"
+              f"  train loss: {train_loss:.4f} (cls: {train_cls:.4f}, loc: {train_loc:.4f})"
+              f"  val loss: {val_loss:.4f} (cls: {val_cls:.4f}, loc: {val_loc:.4f})"
+              f"{saved}")
+
+    # print the final summary
+    total_time = time.time() - start_time
+    print(f"\ntraining complete in {total_time:.1f} seconds")
+    print(f"best validation loss: {best_val_loss:.4f} at epoch {best_epoch}")
+    print(f"checkpoints saved to {CHECKPOINTS_DIR}")

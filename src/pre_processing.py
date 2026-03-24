@@ -24,8 +24,10 @@ from config import (
 
 def RGBtoHSV(images): # converts normalized RGB images to HSV color space
     # undo the ImageNet normalization first
-    mean = torch.tensor(IMAGENET_MEAN).view(1, 3, 1, 1)
-    std  = torch.tensor(IMAGENET_STD).view(1, 3, 1, 1)
+    # we use .to(images.device) so these tensors end up on the same device as the input
+    # without this it crashes on GPU because mean/std would be on CPU but images on GPU
+    mean = torch.tensor(IMAGENET_MEAN).view(1, 3, 1, 1).to(images.device)
+    std  = torch.tensor(IMAGENET_STD).view(1, 3, 1, 1).to(images.device)
     rgb  = (images * std + mean).clamp(0, 1)
 
     r, g, b = rgb[:, 0, :, :], rgb[:, 1, :, :], rgb[:, 2, :, :]
@@ -67,8 +69,9 @@ def ApplyHSVMask(images): # binary mask that highlights red and white pixels (wa
 
 def ApplySobelEdgeDetection(images): # edge detection, waldos stripes make strong horizontal edges
     # undo normalization
-    mean = torch.tensor(IMAGENET_MEAN).view(1, 3, 1, 1)
-    std  = torch.tensor(IMAGENET_STD).view(1, 3, 1, 1)
+    # same device fix as RGBtoHSV, tensors need to be on the same device as input
+    mean = torch.tensor(IMAGENET_MEAN).view(1, 3, 1, 1).to(images.device)
+    std  = torch.tensor(IMAGENET_STD).view(1, 3, 1, 1).to(images.device)
     rgb  = (images * std + mean).clamp(0, 1)
 
     # convert to grayscale
@@ -77,11 +80,11 @@ def ApplySobelEdgeDetection(images): # edge detection, waldos stripes make stron
     # sobel kernels
     sobel_x = torch.tensor([[-1, 0, 1],
                              [-2, 0, 2],
-                             [-1, 0, 1]], dtype=torch.float32).view(1, 1, 3, 3)
+                             [-1, 0, 1]], dtype=torch.float32).view(1, 1, 3, 3).to(images.device)
 
     sobel_y = torch.tensor([[-1, -2, -1],
                              [ 0,  0,  0],
-                             [ 1,  2,  1]], dtype=torch.float32).view(1, 1, 3, 3)
+                             [ 1,  2,  1]], dtype=torch.float32).view(1, 1, 3, 3).to(images.device)
 
     gx = F.conv2d(gray, sobel_x, padding=1)
     gy = F.conv2d(gray, sobel_y, padding=1)
@@ -105,13 +108,14 @@ def preprocess_batch(images): # takes [N, 3, 256, 256] and returns [N, 5, 256, 2
     # of red/white areas, which is basically the outline of waldos stripes
     # the sobel kernels are the standard ones defined by Irwin Sobel in 1968
     # sobel_x finds vertical edges, sobel_y finds horizontal edges
+    # make sure sobel kernels are on the same device as the input images
     sobel_x = torch.tensor([[-1, 0, 1],
                              [-2, 0, 2],
-                             [-1, 0, 1]], dtype=torch.float32).view(1, 1, 3, 3)
+                             [-1, 0, 1]], dtype=torch.float32).view(1, 1, 3, 3).to(images.device)
 
     sobel_y = torch.tensor([[-1, -2, -1],
                              [ 0,  0,  0],
-                             [ 1,  2,  1]], dtype=torch.float32).view(1, 1, 3, 3)
+                             [ 1,  2,  1]], dtype=torch.float32).view(1, 1, 3, 3).to(images.device)
 
     # run the sobel kernels on the hsv mask, not the raw image
     gx = F.conv2d(hsv_mask, sobel_x, padding=1)

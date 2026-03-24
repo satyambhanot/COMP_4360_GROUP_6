@@ -108,6 +108,11 @@ def concatenate_all_heads(all_loc_preds, all_cls_preds, feature_sizes):
     all_cls = torch.cat(reshaped_cls, dim=1) # [N, total_anchors, 2]
     all_anchors = torch.cat(all_anchors, dim=0) # [total_anchors, 4]
 
+    # make sure anchors are on the same device as the predictions
+    # generate_anchors creates them on CPU but if the model is on GPU
+    # everything needs to be on the same device or pytorch will crash
+    all_anchors = all_anchors.to(all_locs.device)
+
     return all_locs, all_cls, all_anchors
 
 

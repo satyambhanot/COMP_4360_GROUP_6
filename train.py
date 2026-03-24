@@ -48,7 +48,8 @@ def bbox_to_center(bbox):
     cy = (ymin + ymax) / 2
     w = xmax - xmin
     h = ymax - ymin
-    return torch.tensor([cx, cy, w, h])
+    # use torch.stack instead of torch.tensor so it stays on the same device as the input
+    return torch.stack([cx, cy, w, h])
 
 
 def compute_iou(box, anchors):
@@ -109,7 +110,8 @@ def encode_ground_truth(gt_box, anchor):
     dw = torch.log((gt_box[2] + 1e-6) / (anchor[2] + 1e-6))
     dh = torch.log((gt_box[3] + 1e-6) / (anchor[3] + 1e-6))
 
-    return torch.tensor([dx, dy, dw, dh])
+    # make sure the returned tensor is on the same device as the inputs
+    return torch.stack([dx, dy, dw, dh])
 
 
 def compute_loss(locs, cls_scores, anchors, labels, bboxes):

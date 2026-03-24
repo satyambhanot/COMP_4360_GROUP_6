@@ -158,7 +158,51 @@ def run_predictions(model, dataloader, device):
     return all_predictions, all_labels, all_confidences, all_nms_results
 
 
-# TODO: add compute_metrics
+def compute_metrics(predictions, labels):
+    # computes accuracy, precision, recall, and f1 from the predictions
+    # also prints a confusion matrix showing TP, FP, TN, FN counts
+    # returns a dictionary of all metrics so ablation studies can use them
+
+    tp = sum(1 for p, l in zip(predictions, labels) if p == 1 and l == 1) # correctly found waldo
+    fp = sum(1 for p, l in zip(predictions, labels) if p == 1 and l == 0) # false alarm
+    tn = sum(1 for p, l in zip(predictions, labels) if p == 0 and l == 0) # correctly said no waldo
+    fn = sum(1 for p, l in zip(predictions, labels) if p == 0 and l == 1) # missed waldo
+
+    total = len(predictions)
+    accuracy = (tp + tn) / total if total > 0 else 0
+
+    # precision: when we say waldo, how often are we right
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+
+    # recall: of all tiles with waldo, how many did we find
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+
+    # f1: combines precision and recall into one number
+    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
+
+    # print the confusion matrix
+    print("\nconfusion matrix:")
+    print(f"                  predicted waldo    predicted no waldo")
+    print(f"  actual waldo         {tp:>5}               {fn:>5}")
+    print(f"  actual no waldo      {fp:>5}               {tn:>5}")
+
+    # print the metrics
+    print(f"\nmetrics:")
+    print(f"  total tiles: {total}")
+    print(f"  accuracy:  {accuracy:.4f} ({tp + tn}/{total})")
+    print(f"  precision: {precision:.4f} ({tp}/{tp + fp})")
+    print(f"  recall:    {recall:.4f} ({tp}/{tp + fn})")
+    print(f"  f1 score:  {f1:.4f}")
+
+    return {
+        "accuracy": accuracy,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "tp": tp, "fp": fp, "tn": tn, "fn": fn
+    }
+
+
 # TODO: add plot functions
 # TODO: add visualize_samples
 # TODO: add run_demo

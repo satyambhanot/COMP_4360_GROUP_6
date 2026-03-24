@@ -14,12 +14,15 @@ from PIL import Image
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
+from torch.utils.data import WeightedRandomSampler
 from config import (
     RAW_IMAGES, RAW_ANNOTATIONS, PROCESSED,
     TILE_SIZES, OVERLAP_THRESHOLD,
     TRAIN_RATIO, VAL_RATIO, RANDOM_SEED,
     INPUT_SIZE, BATCH_SIZE,
-    IMAGENET_MEAN, IMAGENET_STD
+    IMAGENET_MEAN, IMAGENET_STD,
+    AUGMENT_TRAINING, SAMPLING_BALANCE_FACTOR,
+    COLOR_JITTER_BRIGHTNESS, COLOR_JITTER_CONTRAST, COLOR_JITTER_SATURATION
 )
 
 
@@ -188,12 +191,25 @@ class WaldoTileDataset(Dataset):
         # only grab tiles of the requested size
         self.tiles = [t for t in all_splits[split] if t["tile_size"] == tile_size]
         self.tile_size = tile_size
+        self.split = split # we need to know if we are training so we can apply augmentation
 
+        # the base transform that every tile goes through regardless of split
         self.transform = transforms.Compose([
             transforms.Resize((INPUT_SIZE, INPUT_SIZE)), # everything goes to 256x256 for the backbone
             transforms.ToTensor(),
             transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD) # imagenet normalization
         ])
+
+        # color jitter for positive training tiles only
+        # this randomly tweaks brightness, contrast, and saturation each time
+        # so the model sees a slightly different waldo every epoch
+        # we only change colors not positions so the bounding box stays the same
+        # we dont apply this to val/test because we want clean untouched data for evaluation
+        self.color_jitter = transforms.ColorJitter(
+            brightness=COLOR_JITTER_BRIGHTNESS,
+            contrast=COLOR_JITTER_CONTRAST,
+            saturation=COLOR_JITTER_SATURATION
+        )
 
     def __len__(self):
         return len(self.tiles)
@@ -203,6 +219,13 @@ class WaldoTileDataset(Dataset):
 
         img_path = os.path.join(PROCESSED, str(self.tile_size), tile_info["file"])
         img = Image.open(img_path).convert("RGB")
+
+        # if this is a positive tile during training, apply color jitter
+        # this makes each waldo tile look slightly different every time
+        # helps the model learn the general pattern instead of memorizing specific tiles
+        if self.split == "train" and AUGMENT_TRAINING and tile_info["has_waldo"]:
+            img = self.color_jitter(img)
+
         img_tensor = self.transform(img)
 
         label = tile_info["has_waldo"] # 0 or 1
@@ -220,7 +243,28 @@ def get_dataloader(split="train", tile_size=256, batch_size=BATCH_SIZE, shuffle=
     # this is the main way other files load data
     # just call get_dataloader() and you get batches of (images, labels, bboxes) ready to go
     dataset = WaldoTileDataset(split=split, tile_size=tile_size)
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+
+    # for training we use weighted sampling to handle the class imbalance
+    # we have about 14000 negative tiles but only 56 positive ones
+    # without this the model would almost never see a positive tile during training
+    # the sampler gives positive tiles a higher chance of being picked
+    # we compute the weight dynamically so it adjusts if the dataset changes
+    if split == "train" and AUGMENT_TRAINING:
+        num_positive = sum(1 for t in dataset.tiles if t["has_waldo"])
+        num_negative = len(dataset.tiles) - num_positive
+
+        # we divide by SAMPLING_BALANCE_FACTOR so its not a full 50/50 split
+        # with factor 5 we get roughly 1 positive for every 5 negatives
+        # full 50/50 would make the model too eager and see waldo everywhere
+        positive_weight = num_negative / num_positive / SAMPLING_BALANCE_FACTOR
+        weights = [positive_weight if t["has_waldo"] else 1.0 for t in dataset.tiles]
+
+        sampler = WeightedRandomSampler(weights, num_samples=len(dataset))
+        # cant use shuffle and sampler at the same time, the sampler handles randomness
+        loader = DataLoader(dataset, batch_size=batch_size, sampler=sampler)
+    else:
+        loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+
     return loader
 
 

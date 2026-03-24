@@ -1,7 +1,17 @@
 # pre_processing.py
 # takes image tiles and adds extra channels that help the model spot waldo
-# we concatenate the original RGB with a HSV color mask and sobel edges
-# so instead of just 3 channels (RGB) the model gets 5 channels (RGB + HSV mask + edges)
+# we concatenate the original RGB with a HSV color mask and sobel edges of the HSV mask
+# so instead of just 3 channels (RGB) the model gets 5 channels (RGB + HSV mask + edges of HSV)
+#
+# originally we ran sobel on the full grayscale image which found edges of everything
+# buildings, people, trees, signs, all creating edges that have nothing to do with waldo
+# we realized it makes more sense to run sobel on the HSV mask instead
+# that way the edge channel only shows edges around red and white regions
+# which is basically the outline of waldos stripes
+# much more focused and useful than edges of random stuff in the background
+#
+# we kept the old ApplySobelEdgeDetection function around in case we want to
+# compare the two approaches in our ablation studies later
 
 import torch
 import torch.nn.functional as F
@@ -87,12 +97,32 @@ def ApplySobelEdgeDetection(images): # edge detection, waldos stripes make stron
 
 
 def preprocess_batch(images): # takes [N, 3, 256, 256] and returns [N, 5, 256, 256]
-    hsv_mask = ApplyHSVMask(images)       # [N, 1, 256, 256] red/white pixel mask
-    sobel = ApplySobelEdgeDetection(images) # [N, 1, 256, 256] edge magnitude
+    hsv_mask = ApplyHSVMask(images) # [N, 1, 256, 256] binary mask of red/white pixels
 
-    # stack RGB + HSV mask + sobel edges = 5 channels total
-    # this gives the model extra hints about where waldo might be
-    return torch.cat([images, hsv_mask, sobel], dim=1)  # [N, 5, 256, 256]
+    # instead of running sobel on the full grayscale image (which finds edges of everything)
+    # we run it on the HSV mask so it only finds edges around red and white regions
+    # the HSV mask is binary (0 or 1) so the edges show up at the boundaries
+    # of red/white areas, which is basically the outline of waldos stripes
+    # the sobel kernels are the standard ones defined by Irwin Sobel in 1968
+    # sobel_x finds vertical edges, sobel_y finds horizontal edges
+    sobel_x = torch.tensor([[-1, 0, 1],
+                             [-2, 0, 2],
+                             [-1, 0, 1]], dtype=torch.float32).view(1, 1, 3, 3)
+
+    sobel_y = torch.tensor([[-1, -2, -1],
+                             [ 0,  0,  0],
+                             [ 1,  2,  1]], dtype=torch.float32).view(1, 1, 3, 3)
+
+    # run the sobel kernels on the hsv mask, not the raw image
+    gx = F.conv2d(hsv_mask, sobel_x, padding=1)
+    gy = F.conv2d(hsv_mask, sobel_y, padding=1)
+    sobel_of_hsv = torch.sqrt(gx ** 2 + gy ** 2) # [N, 1, 256, 256] edges of red/white regions
+
+    # stack RGB + HSV mask + sobel of HSV = 5 channels total
+    # channel 1,2,3: the original RGB image
+    # channel 4: where the red and white pixels are
+    # channel 5: the edges around those red and white regions
+    return torch.cat([images, hsv_mask, sobel_of_hsv], dim=1)  # [N, 5, 256, 256]
 
 
 if __name__ == "__main__":
@@ -109,8 +139,13 @@ if __name__ == "__main__":
     hsv_mask = ApplyHSVMask(images)
     print(f"hsv mask shape: {hsv_mask.shape}") # [4, 1, 256, 256]
 
-    sobel = ApplySobelEdgeDetection(images)
-    print(f"sobel shape: {sobel.shape}") # [4, 1, 256, 256]
+    # test the old sobel on raw image (kept for ablation studies)
+    sobel_raw = ApplySobelEdgeDetection(images)
+    print(f"sobel on raw image shape: {sobel_raw.shape}") # [4, 1, 256, 256]
 
+    # test the new preprocess_batch which uses sobel on hsv mask
     combined = preprocess_batch(images)
     print(f"combined shape: {combined.shape}") # [4, 5, 256, 256]
+    print(f"  channel 1,2,3: RGB")
+    print(f"  channel 4: HSV mask (red/white pixels)")
+    print(f"  channel 5: sobel edges of HSV mask (outlines of red/white regions)")

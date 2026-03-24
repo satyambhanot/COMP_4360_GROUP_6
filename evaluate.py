@@ -203,7 +203,81 @@ def compute_metrics(predictions, labels):
     }
 
 
-# TODO: add plot functions
+def plot_training_curves():
+    # loads the training history json and plots the loss curves
+    # this shows whether the model was learning and when it started overfitting
+    # we plot train and val loss on the same chart for easy comparison
+
+    history_path = os.path.join(CHECKPOINTS_DIR, "training_history.json")
+
+    if not os.path.exists(history_path):
+        print("no training history found, skipping training curves")
+        print("(train.py needs to be run first to generate training_history.json)")
+        return
+
+    with open(history_path, "r") as f:
+        history = json.load(f)
+
+    epochs = range(1, len(history["train_loss"]) + 1)
+
+    # plot total loss (train vs val)
+    plt.figure(figsize=(12, 4))
+
+    plt.subplot(1, 3, 1)
+    plt.plot(epochs, history["train_loss"], label="train")
+    plt.plot(epochs, history["val_loss"], label="val")
+    plt.xlabel("epoch")
+    plt.ylabel("total loss")
+    plt.title("Total Loss")
+    plt.legend()
+
+    # plot classification loss
+    plt.subplot(1, 3, 2)
+    plt.plot(epochs, history["train_cls"], label="train")
+    plt.plot(epochs, history["val_cls"], label="val")
+    plt.xlabel("epoch")
+    plt.ylabel("cls loss")
+    plt.title("Classification Loss")
+    plt.legend()
+
+    # plot localization loss
+    plt.subplot(1, 3, 3)
+    plt.plot(epochs, history["train_loc"], label="train")
+    plt.plot(epochs, history["val_loc"], label="val")
+    plt.xlabel("epoch")
+    plt.ylabel("loc loss")
+    plt.title("Localization Loss")
+    plt.legend()
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(RESULTS_DIR, "training_curves.png"), dpi=150)
+    plt.close()
+    print(f"saved training curves to results/training_curves.png")
+
+
+def plot_confidence_distribution(confidences, labels):
+    # shows the distribution of confidence scores for positive vs negative tiles
+    # if the model is working well, positive tiles should have high confidence
+    # and negative tiles should have low confidence
+    # if the two distributions overlap a lot the model is confused
+
+    pos_conf = [c for c, l in zip(confidences, labels) if l == 1]
+    neg_conf = [c for c, l in zip(confidences, labels) if l == 0]
+
+    plt.figure(figsize=(8, 5))
+    plt.hist(neg_conf, bins=50, alpha=0.6, label=f"no waldo ({len(neg_conf)} tiles)", color="blue")
+    plt.hist(pos_conf, bins=50, alpha=0.6, label=f"has waldo ({len(pos_conf)} tiles)", color="red")
+    plt.axvline(x=0.5, color="black", linestyle=":", label="confidence threshold (0.5)")
+    plt.xlabel("waldo confidence score")
+    plt.ylabel("number of tiles")
+    plt.title("Confidence Score Distribution")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(os.path.join(RESULTS_DIR, "confidence_distribution.png"), dpi=150)
+    plt.close()
+    print(f"saved confidence distribution to results/confidence_distribution.png")
+
+
 # TODO: add visualize_samples
 # TODO: add run_demo
 # TODO: add main block

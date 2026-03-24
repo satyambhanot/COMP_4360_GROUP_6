@@ -5,24 +5,27 @@ import torch.nn as nn
 # Input follows: channels, classes, kernel size, number of anchors.
 # Returns location predictions,  class predictions, and next feature maps. (loc_preds, cls_preds, next_features)
 class ssd_block(nn.Module):
-
-    def __init__(self, in_channels: int,  num_classes: int, kernel_size: int, num_anchors: int):
+    def __init__(self, in_channels: int,  num_classes: int, kernel_size: int, num_anchors: int, device):
         super().__init__()
 
         # Predict bounding box offsets (x, y, w, h).
         self.loc = nn.Conv2d(
-            in_channels,
-            num_anchors * 4, # This is the number of feature maps (x, y, w, h).
-            kernel_size,
-            padding=1
+            in_channels = in_channels,
+            out_channels = num_anchors * 4, # This is the number of feature maps (x, y, w, h).
+            kernel_size = kernel_size,
+            stride = 1,
+            padding = 1,
+            device = device
         )
 
         # Predict class probabilities (Waldo / background).
         self.cls = nn.Conv2d(
             in_channels,
-            num_anchors * num_classes,
-            kernel_size,
-            padding=1
+            out_channels = num_anchors * num_classes,
+            kernel_size = kernel_size,
+            stride = 1,
+            padding = 1,
+            device = device
         )
 
         # Downsample the feature map.

@@ -116,7 +116,48 @@ def unnormalize(tensor):
     return (tensor * std + mean).clamp(0, 1)
 
 
-# TODO: add run_predictions
+def run_predictions(model, dataloader, device):
+    # runs every test tile through the model and collects the results
+    # for each tile we record: did the model predict waldo? what was the confidence?
+    # and what was the actual ground truth label?
+    # we use these to compute metrics and draw visualizations
+
+    all_predictions = [] # 1 if model thinks waldo is in this tile, 0 if not
+    all_labels = [] # the actual ground truth label (0 or 1)
+    all_confidences = [] # the highest waldo confidence score for each tile
+    all_nms_results = [] # the filtered boxes and scores from NMS for visualization
+
+    with torch.no_grad():
+        for images, labels, bboxes in dataloader:
+            images = images.to(device)
+
+            # run the tiles through the model
+            locs, cls_scores, anchors = model(images)
+
+            # run NMS to filter overlapping predictions
+            nms_results = apply_nms(locs, cls_scores, anchors)
+
+            # for each tile in the batch, check if NMS found any waldo boxes
+            for i in range(images.shape[0]):
+                boxes, scores = nms_results[i]
+                label = labels[i].item()
+
+                # if NMS returned any boxes, the model thinks this tile has waldo
+                if boxes.shape[0] > 0:
+                    prediction = 1
+                    confidence = scores.max().item()
+                else:
+                    prediction = 0
+                    confidence = 0.0
+
+                all_predictions.append(prediction)
+                all_labels.append(label)
+                all_confidences.append(confidence)
+                all_nms_results.append((boxes, scores))
+
+    return all_predictions, all_labels, all_confidences, all_nms_results
+
+
 # TODO: add compute_metrics
 # TODO: add plot functions
 # TODO: add visualize_samples

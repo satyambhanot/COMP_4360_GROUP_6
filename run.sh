@@ -4,14 +4,20 @@
 # this script runs the entire wheres waldo detection pipeline from start to finish
 # it generates tiles, trains the model, and evaluates the results
 #
-# usage: bash run.sh 2>&1 | tee results/run_log.txt
-# or just: bash run.sh
+# usage: bash run.sh
 #
 # the results will be saved to the results/ folder
+# the complete log will be saved to results/run_log.txt automatically
 # the trained model will be saved to the checkpoints/ folder
 #
 # to change the number of training epochs edit NUM_EPOCHS in src/config.py
-# default is 50 epochs, for better results try 500
+
+# make sure results directory exists before we start logging
+mkdir -p results
+
+# save the complete output to a log file automatically
+# tee sends output to both the screen and the file at the same time
+exec > >(tee results/run_log.txt) 2>&1
 
 echo "========================================"
 echo "  Wheres Waldo Detection Pipeline"

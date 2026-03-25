@@ -89,13 +89,29 @@ SHARPNESS_FACTOR = 2 # how much to adjust sharpness by
 
 # nms (non maximum suppression)
 # these control how we filter the models predictions during evaluation
-NMS_CONFIDENCE_THRESHOLD = 0.5 # predictions below this confidence get thrown away
+# the pretrained SSD needs a lower threshold because it outputs lower confidence scores
+# at threshold 0.3 we found the best tradeoff between finding waldo and false alarms
+NMS_CONFIDENCE_THRESHOLD = 0.3 if USE_PRETRAINED_SSD else 0.5
 NMS_IOU_THRESHOLD = 0.5 # if two boxes overlap more than this we keep only the better one
 
 # training
 # will be used by train.py
-# pretrained SSD needs a lower learning rate because its weights are already close to optimal
-# too high a learning rate would destroy the pretrained features
+# pretrained SSD needs a much lower learning rate because its weights are already close to optimal
+# 0.0001 was too high and caused overfitting by epoch 2
+# 0.00005 gives the model time to adjust gently without destroying pretrained features
 # our custom model can use a higher rate since its heads start from random
-LEARNING_RATE = 0.0001 if USE_PRETRAINED_SSD else 0.001
-NUM_EPOCHS = 50
+LEARNING_RATE = 0.00005 if USE_PRETRAINED_SSD else 0.001
+NUM_EPOCHS = 500
+
+# learning rate scheduler
+# if the validation loss stops improving for LR_SCHEDULER_PATIENCE epochs
+# we cut the learning rate by LR_SCHEDULER_FACTOR (halve it)
+# this helps the model converge when its stuck at a plateau
+# torch.optim.lr_scheduler.ReduceLROnPlateau from pytorch handles this
+LR_SCHEDULER_PATIENCE = 10
+LR_SCHEDULER_FACTOR = 0.5
+
+# early stopping
+# if the validation loss hasnt improved for this many epochs in a row
+# we stop training to save time since the model isnt learning anymore
+EARLY_STOPPING_PATIENCE = 30

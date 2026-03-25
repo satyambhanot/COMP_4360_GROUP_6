@@ -70,7 +70,8 @@ from config import (
     BACKBONE_LAYERS, BACKBONE_CHANNELS,
     NUM_CLASSES, NUM_ANCHORS, SSD_KERNEL_SIZE,
     NUM_SSD_HEADS, BATCH_SIZE,
-    USE_PRETRAINED_SSD, PRETRAINED_SSD_INPUT_SIZE
+    USE_PRETRAINED_SSD, PRETRAINED_SSD_INPUT_SIZE,
+    IMAGENET_MEAN, IMAGENET_STD
 )
 from data_pipeline import get_dataloader
 import torch.nn.functional as F
@@ -255,8 +256,14 @@ class WaldoDetectorPretrained(nn.Module):
 
     def forward(self, images, targets=None):
         # images is a batched tensor [N, 3, 256, 256] from our dataloader
+        # the dataloader already applied ImageNet normalization
+        # but torchvision SSD has its own internal normalization
+        # so we need to undo ours first, then let the SSD apply its own
+        # otherwise the images get double normalized which corrupts the input
 
         # step 1: apply our preprocessing (same as WaldoDetector)
+        # preprocessing needs the ImageNet normalized input to work correctly
+        # because it undoes normalization internally before computing HSV and Sobel
         if self.use_hsv and self.use_sobel:
             x = preprocess_batch(images)
         elif self.use_hsv and not self.use_sobel:
@@ -272,13 +279,25 @@ class WaldoDetectorPretrained(nn.Module):
         if self.channel_conv is not None:
             x = self.channel_conv(x)
 
-        # step 3: resize from 256x256 to 300x300 (what SSD300 expects)
+        # step 3: undo the ImageNet normalization from our dataloader
+        # the torchvision SSD will apply its own normalization internally
+        # (it uses different mean/std values than ImageNet)
+        # if we dont undo ours the images get double normalized
+        mean = torch.tensor(IMAGENET_MEAN).view(1, 3, 1, 1).to(x.device)
+        std = torch.tensor(IMAGENET_STD).view(1, 3, 1, 1).to(x.device)
+        x = (x * std + mean).clamp(0, 1) # back to [0, 1] range
+
+        # step 4: scale from [0, 1] to [0, 255] because torchvision SSD expects uint8 range
+        x = x * 255.0
+
+        # step 5: resize from 256x256 to 300x300 (what SSD300 expects)
         x = F.interpolate(x, size=(PRETRAINED_SSD_INPUT_SIZE, PRETRAINED_SSD_INPUT_SIZE), mode="bilinear", align_corners=False)
 
-        # step 4: torchvision SSD expects a list of images, not a batched tensor
+        # step 6: torchvision SSD expects a list of images, not a batched tensor
         image_list = [x[i] for i in range(x.shape[0])]
 
-        # step 5: pass through the SSD
+        # step 7: pass through the SSD
+        # the SSD will normalize the images internally using its own mean/std
         # during training: returns loss dict {"classification": ..., "bbox_regression": ...}
         # during eval: returns list of detection dicts with "boxes", "scores", "labels"
         if self.training and targets is not None:

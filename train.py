@@ -35,9 +35,16 @@ from config import (
     CHECKPOINTS_DIR, NUM_CLASSES, INPUT_SIZE
 )
 
-# check if we have a gpu available
-# the GTX 1080 Ti has 11GB VRAM which is plenty for our model
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# check what hardware we have available
+# cuda is for nvidia gpus (like the GTX 1080 Ti we train on)
+# mps is for apple silicon (M1/M2 macs) which also has gpu acceleration
+# if neither is available we fall back to cpu which is slower but works
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+    device = torch.device("mps")
+else:
+    device = torch.device("cpu")
 print(f"using device: {device}")
 
 def bbox_to_center(bbox):

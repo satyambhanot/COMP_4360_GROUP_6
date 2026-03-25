@@ -33,8 +33,14 @@ from config import (
 # where we save all the output images and results
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), "results")
 
-# check if we have a gpu
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# check what hardware we have available
+# supports nvidia gpu (cuda), apple silicon gpu (mps), or cpu
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+    device = torch.device("mps")
+else:
+    device = torch.device("cpu")
 print(f"using device: {device}")
 
 

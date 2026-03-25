@@ -271,16 +271,70 @@ def analyze_thresholds(confidences, labels):
             best_threshold = threshold
 
     print(f"\n  best f1 score: {best_f1:.4f} at threshold {best_threshold}")
-    return best_threshold
+    return best_threshold, best_f1
 
 
-def save_results(metrics, confidences, labels):
+def plot_precision_recall_curve(confidences, labels):
+    # plots a precision vs recall curve showing the tradeoff at different thresholds
+    # this is a standard chart in object detection papers
+    # each point represents a different confidence threshold
+    # the curve shows: if we want higher recall we sacrifice precision and vice versa
+
+    precisions = []
+    recalls = []
+    f1_scores = []
+    thresholds = [t / 100 for t in range(5, 96, 5)] # 0.05 to 0.95 in steps of 0.05
+
+    best_f1 = 0
+    best_p = 0
+    best_r = 0
+
+    for threshold in thresholds:
+        preds = [1 if c >= threshold else 0 for c in confidences]
+        tp = sum(1 for p, l in zip(preds, labels) if p == 1 and l == 1)
+        fp = sum(1 for p, l in zip(preds, labels) if p == 1 and l == 0)
+        fn = sum(1 for p, l in zip(preds, labels) if p == 0 and l == 1)
+
+        p = tp / (tp + fp) if (tp + fp) > 0 else 0
+        r = tp / (tp + fn) if (tp + fn) > 0 else 0
+        f1 = 2 * p * r / (p + r) if (p + r) > 0 else 0
+
+        precisions.append(p)
+        recalls.append(r)
+        f1_scores.append(f1)
+
+        if f1 > best_f1:
+            best_f1 = f1
+            best_p = p
+            best_r = r
+
+    plt.figure(figsize=(8, 6))
+    plt.plot(recalls, precisions, marker="o", markersize=4, linewidth=2)
+    # mark the best F1 point
+    if best_r > 0 or best_p > 0:
+        plt.scatter([best_r], [best_p], color="red", s=100, zorder=5, label=f"best F1={best_f1:.3f}")
+    plt.xlabel("Recall")
+    plt.ylabel("Precision")
+    plt.title("Precision vs Recall Curve")
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.xlim(0, 1.05)
+    plt.ylim(0, 1.05)
+    plt.tight_layout()
+    plt.savefig(os.path.join(RESULTS_DIR, "precision_recall_curve.png"), dpi=150)
+    plt.close()
+    print(f"saved precision recall curve to results/precision_recall_curve.png")
+
+
+def save_results(metrics, confidences, labels, best_threshold=0.5, best_f1=0):
     # saves all the evaluation results to a json file
     # this makes it easy to load the numbers into the report
     # or compare against ablation study results later
 
     results = {
         "metrics": metrics,
+        "best_threshold": best_threshold,
+        "best_f1_at_optimal_threshold": best_f1,
         "total_positive_tiles": sum(1 for l in labels if l == 1),
         "total_negative_tiles": sum(1 for l in labels if l == 0),
         "avg_confidence_positive": sum(c for c, l in zip(confidences, labels) if l == 1) / max(sum(1 for l in labels if l == 1), 1),
@@ -508,7 +562,9 @@ def run_demo(model, device, image_path=None):
     for boxes, scores in all_detections:
         image = draw_boxes(image, boxes, scores=scores, color="green", width=3)
 
-    demo_path = os.path.join(RESULTS_DIR, "demo_full_image.png")
+    # save with a unique name based on the source image
+    img_name = os.path.splitext(os.path.basename(image_path))[0]
+    demo_path = os.path.join(RESULTS_DIR, f"demo_{img_name}.png")
     image.save(demo_path)
     print(f"found detections in {len(all_detections)} tiles")
     print(f"saved demo image to {demo_path}")
@@ -537,15 +593,19 @@ if __name__ == "__main__":
 
     # analyze different confidence thresholds to find the best one
     print("\nanalyzing confidence thresholds...")
-    best_threshold = analyze_thresholds(confidences, labels)
+    best_threshold, best_f1 = analyze_thresholds(confidences, labels)
 
     # save all results to json for the report
     print("\nsaving results to json...")
-    save_results(metrics, confidences, labels)
+    save_results(metrics, confidences, labels, best_threshold, best_f1)
 
     # plot the confidence distribution
     print("\nplotting confidence distribution...")
     plot_confidence_distribution(confidences, labels)
+
+    # plot precision vs recall curve for the report
+    print("\nplotting precision recall curve...")
+    plot_precision_recall_curve(confidences, labels)
 
     # plot training curves if we have the history
     print("\nplotting training curves...")
@@ -555,8 +615,12 @@ if __name__ == "__main__":
     print("\nvisualizing sample tiles...")
     visualize_samples(model, test_loader, device)
 
-    # run the full image demo
+    # run the full image demo on multiple images
     print("\nrunning full image demo...")
-    run_demo(model, device)
+    raw_images = sorted(os.listdir(RAW_IMAGES))
+    demo_count = min(3, len(raw_images)) # demo on up to 3 images
+    for i in range(demo_count):
+        img_path = os.path.join(RAW_IMAGES, raw_images[i])
+        run_demo(model, device, image_path=img_path)
 
     print("\nevaluation complete! check the results/ folder for all outputs")

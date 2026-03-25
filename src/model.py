@@ -253,24 +253,26 @@ class WaldoDetectorPretrained(nn.Module):
         # setting it to 0.1 means only detections the model is at least 10% confident about survive
         self.ssd.score_thresh = 0.1
 
-        # unfreeze the ENTIRE backbone so it can adapt from COCO photos to waldo cartoons
-        # previously we froze the core VGG16 layers but the FindingWaldo repo trained everything
-        # the cartoon style of wheres waldo is very different from COCO photos
-        # the backbone needs to learn cartoon specific features
-        # we use a lower learning rate for the backbone (set in train.py) so it adapts gently
-        # while the detection heads learn faster with a higher rate
+        # freeze the VGG16 backbone so it keeps its pretrained COCO features
+        # we tried unfreezing it before but with only ~70 positive training tiles
+        # the backbone just learned to fire on everything instead of learning
+        # what waldo specifically looks like. the COCO features are already good
+        # at extracting edges, textures, and shapes from images
+        # those low level features work fine for cartoons too
+        # we only want the detection heads to learn "what is waldo"
+        # not the backbone to forget "how to see"
+        for param in self.ssd.backbone.parameters():
+            param.requires_grad = False
 
     def get_param_groups(self):
-        # returns separate parameter groups for the backbone and detection heads
-        # train.py uses these to set different learning rates
-        # backbone gets a lower LR because its already pretrained and just needs gentle adaptation
-        # heads get a higher LR because the classification head was replaced with random weights
-        backbone_params = list(self.ssd.backbone.parameters())
+        # returns the trainable parameter groups
+        # backbone is frozen so we only return head params and the 1x1 conv
+        # train.py uses this to set up the optimizer
         head_params = list(self.ssd.head.parameters())
-        # include the 1x1 conv in the head group since its also learning from scratch
+        # include the 1x1 conv since its also learning from scratch
         if self.channel_conv is not None:
             head_params += list(self.channel_conv.parameters())
-        return backbone_params, head_params
+        return head_params
 
     def forward(self, images, targets=None):
         # images is a batched tensor [N, 3, 256, 256] from our dataloader

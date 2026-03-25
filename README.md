@@ -6,7 +6,7 @@
 **Instructor:** Dr. Christopher Henry
 **Date:** March 2026
 
-This project adapts a strawberry detection system (Lamb & Chuah, IEEE Big Data 2018) to the domain of locating Waldo in "Where's Waldo?" puzzle illustrations. We use an SSD300 VGG16 pretrained on COCO as our primary model, replacing the classification head to detect Waldo specifically. Our main contribution is a custom preprocessing pipeline that adds HSV color masking and Sobel edge detection channels to exploit Waldo's red and white stripe pattern. The model processes high resolution puzzle images as tiles at 64x64, 128x128, and 256x256 resolutions, predicting per tile bounding boxes for Waldo's location.
+This project adapts a strawberry detection system (Lamb & Chuah, IEEE Big Data 2018) to the domain of locating Waldo in "Where's Waldo?" puzzle illustrations. We use an SSD300 VGG16 pretrained on COCO as our primary model, replacing the classification head to detect Waldo specifically. Our main contribution is a custom preprocessing pipeline that adds HSV color masking and Sobel edge detection channels to exploit Waldo's red and white stripe pattern. The model processes high resolution puzzle images as 256x256 tiles, predicting per tile bounding boxes for Waldo's location.
 
 We also built a custom SSD with a MobileNetV2 backbone and 5 detection heads trained from scratch, which serves as a baseline for comparison. Both models use the same HSV + Sobel preprocessing.
 
@@ -28,7 +28,6 @@ COMP_4360_GROUP_6/
 │   ├── config.py                 # all settings in one place
 │   ├── data_pipeline.py          # tiling, dataset, dataloader, augmentation
 │   ├── pre_processing.py         # HSV mask, Sobel edges, preprocess_batch
-│   ├── MobileV2Backbone.py       # MobileNetV2 feature extractor (custom model)
 │   ├── ssd.py                    # single SSD detection block (custom model)
 │   ├── ConcatenateAnchors.py     # anchor generation and prediction reshaping
 │   ├── model.py                  # WaldoDetector + WaldoDetectorPretrained
@@ -55,7 +54,7 @@ bash run.sh
 
 This will:
 1. Install dependencies from requirements.txt
-2. Tile the raw images at three resolutions
+2. Tile the raw images into 256x256 tiles
 3. Print a model summary
 4. Train the model (with early stopping)
 5. Run a sanity check on training tiles
@@ -82,21 +81,20 @@ All settings for the project live in one file. Paths, tile sizes, color threshol
 
 Key settings:
 - `USE_PRETRAINED_SSD = True` switches between pretrained SSD300 and custom SSD
-- `NUM_EPOCHS = 1000` with early stopping patience of 50
-- `SAMPLING_BALANCE_FACTOR = 20` controls how often positive tiles are sampled during training
+- `NUM_EPOCHS = 1000` with early stopping patience of 25
+- `SAMPLING_BALANCE_FACTOR = 8` controls how often positive tiles are sampled during training
 - `NMS_CONFIDENCE_THRESHOLD = 0.3` for pretrained SSD (0.5 for custom)
 
 ### Step 2: Data Pipeline (src/data_pipeline.py)
 
-Takes the 258 raw images and their XML annotations and chops each image into tiles at three resolutions (64x64, 128x128, 256x256). Checks which tiles contain Waldo by computing overlap with the bounding box annotation. If at least 50% of Waldo is inside a tile, that tile gets labeled as positive.
+Takes the 258 raw images and their XML annotations and chops each image into 256x256 tiles. Checks which tiles contain Waldo by computing overlap with the bounding box annotation. If at least 50% of Waldo is inside a tile, that tile gets labeled as positive.
 
 Splits tiles into train/val/test sets by image id (70/15/15) so the model never sees tiles from the same image in both training and testing. This prevents data leaking where the model memorizes background patterns instead of learning what Waldo looks like.
 
 Also handles data augmentation for training:
-- Weighted random sampling so positive tiles show up more often (we have ~259 positive vs ~90,000 negative tiles)
+- Weighted random sampling so positive tiles show up more often (roughly 1 positive per 8 negatives in each batch)
 - Horizontal flip with bounding box adjustment
 - Color jitter on positive tiles only (brightness, contrast, saturation)
-- Random grayscale conversion (10% chance)
 - Gaussian blur (20% chance)
 - Random sharpness adjustment (20% chance)
 
@@ -111,13 +109,13 @@ The model gets 5 channels total: 3 RGB + 1 HSV mask + 1 Sobel edges. A learnable
 
 ### Step 4: Feature Extraction
 
-**Pretrained SSD (primary model):** Uses the VGG16 backbone from SSD300 pretrained on COCO (330,000 images, 90 object classes). The entire backbone is unfrozen and fine tuned with a lower learning rate (0.0001) so it can adapt from COCO photos to Waldo's cartoon style without losing what it already knows.
+**Pretrained SSD (primary model):** Uses the VGG16 backbone from SSD300 pretrained on COCO (330,000 images, 90 object classes). The backbone is frozen so the pretrained features are preserved. With only ~70 positive training tiles, unfreezing the backbone caused it to overfit and detect everything as Waldo. The frozen COCO features already extract useful edges, textures, and shapes that transfer well to cartoon illustrations.
 
 **Custom SSD (baseline model):** Uses the first 11 layers of MobileNetV2 pretrained on ImageNet as a frozen feature extractor. Turns a 256x256 tile into a 16x16 feature map with 64 channels.
 
 ### Step 5: Detection Heads
 
-**Pretrained SSD:** Uses the original SSD300 detection heads from COCO. We replace only the classification head from 91 classes to 2 (Waldo + background). The box regression head stays the same. Dropout (20%) is applied after the preprocessing channel merge for regularization.
+**Pretrained SSD:** Uses the original SSD300 detection heads from COCO. We replace only the classification head from 91 classes to 2 (Waldo + background). The box regression head stays the same. Weight decay (L2 regularization) prevents overfitting.
 
 **Custom SSD (src/ssd.py):** 5 custom SSD blocks chained together. Each block predicts bounding box offsets and class scores at its scale, then pools the feature map to half size for the next block:
 - Head 1: 16x16 (1024 anchors)
@@ -141,7 +139,7 @@ Handles both model types:
 
 **Pretrained SSD:**
 - SGD optimizer with momentum 0.9
-- Differential learning rates: backbone at 0.0001, detection heads at 0.001
+- Learning rate 0.001 (backbone frozen, only heads train)
 - Weight decay 0.0001 (L2 regularization)
 - Torchvision SSD returns its own loss dict (classification + bbox regression)
 - Gradient clipping (max_norm=1.0)
@@ -153,7 +151,7 @@ Handles both model types:
 
 Both models use:
 - ReduceLROnPlateau scheduler (halves LR after 10 epochs of no improvement)
-- Early stopping (stops training after 50 epochs of no improvement)
+- Early stopping (stops training after 25 epochs of no improvement)
 - Checkpoints saved for best model and last model
 - Training history saved to JSON for plotting
 
@@ -179,7 +177,7 @@ We use 258 images total:
 - 102 images from the FindingWaldo dataset (originals)
 - 137 brightness and gamma variant images from FindingWaldo
 
-All annotations are in Pascal VOC XML format. The data pipeline generates roughly 90,000+ tiles across the three resolutions, of which about 259 contain Waldo (extreme class imbalance).
+All annotations are in Pascal VOC XML format. The data pipeline generates roughly 1,800+ tiles at 256x256, of which about 69 contain Waldo (extreme class imbalance).
 
 
 ## Models
@@ -188,8 +186,8 @@ All annotations are in Pascal VOC XML format. The data pipeline generates roughl
 |---|---|---|
 | Backbone | VGG16 (COCO pretrained) | MobileNetV2 (ImageNet pretrained) |
 | Detection heads | SSD300 heads (COCO pretrained) | 5 custom SSD blocks (from scratch) |
-| Backbone training | Fine tuned (unfrozen, lower LR) | Frozen |
-| Total parameters | ~35M | ~2.5M |
+| Backbone training | Frozen (COCO features preserved) | Frozen |
+| Total parameters | ~35M (~11M trainable) | ~2.5M |
 | Preprocessing | HSV mask + Sobel on HSV | HSV mask + Sobel on HSV |
 | Optimizer | SGD (momentum 0.9) | Adam |
 | Config flag | `USE_PRETRAINED_SSD = True` | `USE_PRETRAINED_SSD = False` |

@@ -80,8 +80,8 @@ print(f'model type: {model.model_type}')
 if USE_PRETRAINED_SSD:
     print(f'  architecture: SSD300 VGG16 (pretrained on COCO)')
     print(f'  preprocessing: HSV mask + Sobel edge detection on HSV')
-    print(f'  backbone: VGG16 (fine tuned with lower LR, pretrained on COCO)')
-    print(f'  detection heads: SSD heads (fine tuned with higher LR)')
+    print(f'  backbone: VGG16 (frozen, pretrained on COCO)')
+    print(f'  detection heads: SSD heads (trainable, classification head replaced for waldo)')
     print(f'  regularization: weight decay {0.0001}')
 else:
     print(f'  architecture: Custom WaldoDetector')

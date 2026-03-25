@@ -97,14 +97,13 @@ NMS_CONFIDENCE_THRESHOLD = 0.3 if USE_PRETRAINED_SSD else 0.5
 NMS_IOU_THRESHOLD = 0.5 # if two boxes overlap more than this we keep only the better one
 
 # training
-# we use differential learning rates: higher for detection heads, lower for backbone
-# the detection heads have a replaced classification layer with random weights so they need to learn fast
-# the backbone is pretrained on COCO and just needs gentle adaptation to cartoon images
-# this is a common transfer learning technique that helps both parts learn at their own pace
-LEARNING_RATE = 0.001 if USE_PRETRAINED_SSD else 0.001
-BACKBONE_LR = 0.0001 # 10x lower than head LR so backbone adapts gently
+# the VGG16 backbone is frozen so we only train the detection heads and 1x1 conv
+# we tried unfreezing the backbone but with only ~70 positive training tiles
+# it just learned to detect everything as waldo (100% recall, 3% precision)
+# keeping the backbone frozen means we have way fewer trainable parameters
+# and the model focuses on learning what waldo looks like, not how to see
+LEARNING_RATE = 0.001
 WEIGHT_DECAY = 0.0001 # L2 regularization to prevent overfitting
-DROPOUT_RATE = 0.2 # randomly zero 20% of neurons during training to prevent memorizing
 NUM_EPOCHS = 1000
 
 # learning rate scheduler

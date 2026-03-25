@@ -95,4 +95,4 @@ NMS_IOU_THRESHOLD = 0.5 # if two boxes overlap more than this we keep only the b
 # training
 # will be used by train.py
 LEARNING_RATE = 0.001
-NUM_EPOCHS = 500
+NUM_EPOCHS = 50

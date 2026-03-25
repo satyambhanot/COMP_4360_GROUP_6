@@ -1,10 +1,10 @@
 # test_confidence.py
-# quick test to see what confidence scores the model is giving on test tiles
+# quick diagnostic to see what confidence scores the model gives on test tiles
 # run from project root: python test_confidence.py
 #
-# this helps us figure out if the model is predicting waldo with confidence
-# below the NMS threshold (0.5) which would explain why evaluate.py shows
-# zero detections even though the model was trained successfully
+# useful for debugging when the model seems to detect nothing or everything
+# it prints every test tile with its confidence score and marks which ones
+# have waldo and which ones pass the NMS threshold
 # works with both our custom model and the pretrained SSD
 
 import sys

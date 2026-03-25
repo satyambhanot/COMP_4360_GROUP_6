@@ -76,7 +76,7 @@ PRETRAINED_SSD_INPUT_SIZE = 300 # SSD300 expects 300x300 input, our tiles are 25
 #      we only do this on positive training tiles, not on val/test
 #      and we only change colors not positions so the bounding box stays the same
 AUGMENT_TRAINING = True
-SAMPLING_BALANCE_FACTOR = 5 # higher means less aggressive balancing
+SAMPLING_BALANCE_FACTOR = 20 if USE_PRETRAINED_SSD else 5 # pretrained SSD needs more negatives to learn what is NOT waldo
 COLOR_JITTER_BRIGHTNESS = 0.2
 COLOR_JITTER_CONTRAST = 0.2
 COLOR_JITTER_SATURATION = 0.2

@@ -27,12 +27,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from model import WaldoDetector
+from model import WaldoDetector, create_model
 from data_pipeline import get_dataloader
 from ConcatenateAnchors import generate_anchors
 from config import (
     LEARNING_RATE, NUM_EPOCHS, BATCH_SIZE,
-    CHECKPOINTS_DIR, NUM_CLASSES, INPUT_SIZE
+    CHECKPOINTS_DIR, NUM_CLASSES, INPUT_SIZE,
+    USE_PRETRAINED_SSD, PRETRAINED_SSD_INPUT_SIZE
 )
 
 # check what hardware we have available
@@ -120,6 +121,40 @@ def encode_ground_truth(gt_box, anchor):
 
     # make sure the returned tensor is on the same device as the inputs
     return torch.stack([dx, dy, dw, dh])
+
+
+def format_targets(labels, bboxes, device):
+    # converts our dataloader output into the format torchvision SSD expects
+    # torchvision wants a list of dicts, one per image in the batch
+    # each dict has:
+    #   "boxes": tensor of shape [num_objects, 4] in [xmin, ymin, xmax, ymax] format
+    #   "labels": tensor of shape [num_objects] with class labels (1 for waldo)
+    #
+    # for positive tiles: one box and one label
+    # for negative tiles: empty tensors (no objects)
+    #
+    # we also need to scale the bboxes from our tile size (256) to what SSD300 expects (300)
+    # because the model resizes images to 300x300 internally
+
+    scale = PRETRAINED_SSD_INPUT_SIZE / INPUT_SIZE
+    targets = []
+
+    for i in range(len(labels)):
+        if labels[i].item() == 1:
+            # positive tile: waldo is here
+            # scale the bbox coordinates from 256 space to 300 space
+            box = bboxes[i].unsqueeze(0).to(device) * scale
+            label = torch.tensor([1], dtype=torch.long, device=device)
+            targets.append({"boxes": box, "labels": label})
+        else:
+            # negative tile: no waldo
+            # torchvision expects empty tensors not zeros
+            targets.append({
+                "boxes": torch.zeros(0, 4, device=device),
+                "labels": torch.zeros(0, dtype=torch.long, device=device)
+            })
+
+    return targets
 
 
 def compute_loss(locs, cls_scores, anchors, labels, bboxes):
@@ -227,11 +262,19 @@ def train_one_epoch(model, dataloader, optimizer, device):
         labels = labels.to(device)
         bboxes = bboxes.to(device)
 
-        # forward pass: run the tiles through the model
-        locs, cls_scores, anchors = model(images)
-
-        # compute the loss (both classification and localization)
-        loss, cls_loss, loc_loss = compute_loss(locs, cls_scores, anchors, labels, bboxes)
+        if USE_PRETRAINED_SSD:
+            # pretrained SSD has a different training interface
+            # it takes images + targets and computes loss internally
+            # torchvision handles anchor matching, encoding, and loss computation for us
+            targets = format_targets(labels, bboxes, device)
+            loss_dict = model(images, targets)
+            cls_loss = loss_dict["classification"].item()
+            loc_loss = loss_dict["bbox_regression"].item()
+            loss = loss_dict["classification"] + loss_dict["bbox_regression"]
+        else:
+            # our custom model returns raw predictions and we compute loss ourselves
+            locs, cls_scores, anchors = model(images)
+            loss, cls_loss, loc_loss = compute_loss(locs, cls_scores, anchors, labels, bboxes)
 
         # backward pass: compute gradients
         optimizer.zero_grad() # reset gradients from the previous batch
@@ -266,19 +309,36 @@ def validate(model, dataloader, device):
 
     # torch.no_grad tells pytorch not to track gradients
     # this saves memory and speeds things up since we dont need gradients for validation
+    #
+    # for the pretrained SSD we need to temporarily put it back in train mode
+    # to compute the loss because in eval mode it returns detections instead of losses
+    # we still use no_grad so no weights get updated
+    if USE_PRETRAINED_SSD:
+        model.train() # need train mode to get losses from torchvision SSD
+
     with torch.no_grad():
         for images, labels, bboxes in dataloader:
             images = images.to(device)
             labels = labels.to(device)
             bboxes = bboxes.to(device)
 
-            locs, cls_scores, anchors = model(images)
-            loss, cls_loss, loc_loss = compute_loss(locs, cls_scores, anchors, labels, bboxes)
+            if USE_PRETRAINED_SSD:
+                targets = format_targets(labels, bboxes, device)
+                loss_dict = model(images, targets)
+                cls_loss = loss_dict["classification"].item()
+                loc_loss = loss_dict["bbox_regression"].item()
+                loss_val = loss_dict["classification"].item() + loss_dict["bbox_regression"].item()
+                running_loss += loss_val
+            else:
+                locs, cls_scores, anchors = model(images)
+                loss, cls_loss, loc_loss = compute_loss(locs, cls_scores, anchors, labels, bboxes)
+                running_loss += loss.item()
 
-            running_loss += loss.item()
             running_cls_loss += cls_loss
             running_loc_loss += loc_loss
             num_batches += 1
+
+    model.eval() # put back in eval mode
 
     avg_loss = running_loss / max(num_batches, 1)
     avg_cls = running_cls_loss / max(num_batches, 1)
@@ -292,8 +352,12 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # create the model and move it to the gpu
-    model = WaldoDetector()
+    # create_model checks the config flag and returns either our custom WaldoDetector
+    # or the pretrained SSD300 VGG16 from torchvision
+    model = create_model()
     model = model.to(device)
+    model_type = model.model_type
+    print(f"model type: {model_type}")
     print(f"model created with {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable parameters")
 
     # create the optimizer
@@ -358,6 +422,7 @@ if __name__ == "__main__":
             # torch.save is the standard pytorch way to save models
             torch.save({
                 "epoch": epoch + 1,
+                "model_type": model_type, # so evaluate.py knows which model class to load
                 "model_state_dict": model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
                 "val_loss": val_loss,
@@ -367,6 +432,7 @@ if __name__ == "__main__":
         # always save the last model so we can resume from where we stopped
         torch.save({
             "epoch": epoch + 1,
+            "model_type": model_type,
             "model_state_dict": model.state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
             "val_loss": val_loss,

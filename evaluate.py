@@ -382,11 +382,21 @@ def visualize_samples(model, dataloader, device, num_samples=5):
     with torch.no_grad():
         for images, labels, bboxes in dataloader:
             images = images.to(device)
-            locs, cls_scores, anchors = model(images)
-            nms_results = apply_nms(locs, cls_scores, anchors)
+
+            # get detections based on model type
+            if hasattr(model, "model_type") and model.model_type == "pretrained_ssd":
+                detections = model(images)
+                tile_results = []
+                for det in detections:
+                    waldo_mask = det["labels"] == 1
+                    tile_results.append((det["boxes"][waldo_mask].cpu(), det["scores"][waldo_mask].cpu()))
+            else:
+                locs, cls_scores, anchors = model(images)
+                nms_results = apply_nms(locs, cls_scores, anchors)
+                tile_results = nms_results
 
             for i in range(images.shape[0]):
-                boxes, scores = nms_results[i]
+                boxes, scores = tile_results[i]
                 label = labels[i].item()
                 predicted = 1 if boxes.shape[0] > 0 else 0
 

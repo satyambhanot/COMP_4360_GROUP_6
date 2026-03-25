@@ -65,22 +65,28 @@ echo "  Step 3: Model summary"
 echo "========================================"
 $PYTHON -c "
 import sys; sys.path.insert(0, 'src')
-from model import WaldoDetector
-model = WaldoDetector()
+from model import create_model
+from config import USE_PRETRAINED_SSD
+model = create_model()
 total = sum(p.numel() for p in model.parameters())
 trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
 frozen = total - trainable
-print(f'model architecture: WaldoDetector')
-print(f'  preprocessing: HSV mask + Sobel edge detection on HSV')
-print(f'  backbone: MobileNetV2 (first 11 layers, frozen)')
-print(f'  detection heads: 5 SSD blocks')
-print(f'  anchors per location: 4')
-print(f'  total anchors: 1364')
+print(f'model type: {model.model_type}')
+if USE_PRETRAINED_SSD:
+    print(f'  architecture: SSD300 VGG16 (pretrained on COCO)')
+    print(f'  preprocessing: HSV mask + Sobel edge detection on HSV')
+    print(f'  backbone: VGG16 (frozen, pretrained on COCO)')
+    print(f'  detection heads: SSD heads (pretrained on COCO, fine tuned for waldo)')
+else:
+    print(f'  architecture: Custom WaldoDetector')
+    print(f'  preprocessing: HSV mask + Sobel edge detection on HSV')
+    print(f'  backbone: MobileNetV2 (first 11 layers, frozen)')
+    print(f'  detection heads: 5 custom SSD blocks')
 print(f'')
 print(f'parameters:')
 print(f'  total:     {total:,}')
-print(f'  trainable: {trainable:,} (1x1 conv + SSD heads)')
-print(f'  frozen:    {frozen:,} (MobileNet backbone)')
+print(f'  trainable: {trainable:,}')
+print(f'  frozen:    {frozen:,}')
 "
 echo ""
 

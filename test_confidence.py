@@ -5,6 +5,7 @@
 # this helps us figure out if the model is predicting waldo with confidence
 # below the NMS threshold (0.5) which would explain why evaluate.py shows
 # zero detections even though the model was trained successfully
+# works with both our custom model and the pretrained SSD
 
 import sys
 import os
@@ -13,9 +14,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 import torch
 import torch.nn.functional as F
-from model import WaldoDetector
+from model import WaldoDetector, WaldoDetectorPretrained
 from data_pipeline import get_dataloader
-from config import CHECKPOINTS_DIR
+from config import CHECKPOINTS_DIR, USE_PRETRAINED_SSD
 
 # supports nvidia gpu (cuda), apple silicon gpu (mps), or cpu
 if torch.cuda.is_available():
@@ -32,11 +33,18 @@ if not os.path.exists(checkpoint_path):
     print("no checkpoint found, run train.py first")
     exit()
 
-model = WaldoDetector().to(device)
-checkpoint = torch.load(checkpoint_path, map_location=device)
+checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+model_type = checkpoint.get("model_type", "pretrained_ssd" if USE_PRETRAINED_SSD else "custom_ssd")
+
+if model_type == "pretrained_ssd":
+    model = WaldoDetectorPretrained().to(device)
+else:
+    model = WaldoDetector().to(device)
+
 model.load_state_dict(checkpoint["model_state_dict"])
 model.eval()
-print(f"loaded checkpoint from epoch {checkpoint['epoch']}")
+model.model_type = model_type
+print(f"loaded checkpoint from epoch {checkpoint['epoch']} (model: {model_type})")
 
 # load test tiles
 loader = get_dataloader(split="test", tile_size=256, batch_size=16, shuffle=False)
@@ -51,25 +59,44 @@ with torch.no_grad():
     for images, labels, bboxes in loader:
         images = images.to(device)
 
-        locs, cls_scores, anchors = model(images)
+        if model_type == "pretrained_ssd":
+            # pretrained SSD returns detections with scores in eval mode
+            detections = model(images)
+            for i in range(len(labels)):
+                label = labels[i].item()
+                det = detections[i]
+                # filter to waldo predictions only (label 1)
+                waldo_mask = det["labels"] == 1
+                waldo_scores = det["scores"][waldo_mask]
+                conf = waldo_scores.max().item() if waldo_scores.shape[0] > 0 else 0.0
 
-        # get the waldo probability for every anchor on every tile
-        probs = F.softmax(cls_scores, dim=2)
-        # for each tile, whats the highest waldo confidence across all 1364 anchors
-        max_waldo_probs = probs[:, :, 1].max(dim=1).values
+                marker = ""
+                if label == 1:
+                    marker = " <== WALDO IS HERE"
+                if conf > 0.5:
+                    tiles_above_threshold += 1
+                    marker += " [ABOVE THRESHOLD]"
 
-        for i in range(len(labels)):
-            label = labels[i].item()
-            conf = max_waldo_probs[i].item()
-            marker = ""
-            if label == 1:
-                marker = " <== WALDO IS HERE"
-            if conf > 0.5:
-                tiles_above_threshold += 1
-                marker += " [ABOVE THRESHOLD]"
+                print(f"  tile {total_tiles}: label={label}, max confidence={conf:.4f}{marker}")
+                total_tiles += 1
+        else:
+            # custom model returns raw predictions
+            locs, cls_scores, anchors = model(images)
+            probs = F.softmax(cls_scores, dim=2)
+            max_waldo_probs = probs[:, :, 1].max(dim=1).values
 
-            print(f"  tile {total_tiles}: label={label}, max confidence={conf:.4f}{marker}")
-            total_tiles += 1
+            for i in range(len(labels)):
+                label = labels[i].item()
+                conf = max_waldo_probs[i].item()
+                marker = ""
+                if label == 1:
+                    marker = " <== WALDO IS HERE"
+                if conf > 0.5:
+                    tiles_above_threshold += 1
+                    marker += " [ABOVE THRESHOLD]"
+
+                print(f"  tile {total_tiles}: label={label}, max confidence={conf:.4f}{marker}")
+                total_tiles += 1
 
 print(f"\nsummary:")
 print(f"  total test tiles: {total_tiles}")

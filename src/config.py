@@ -105,6 +105,16 @@ SHARPNESS_FACTOR = 2 # how much to adjust sharpness by
 NMS_CONFIDENCE_THRESHOLD = 0.5
 NMS_IOU_THRESHOLD = 0.5 # if two boxes overlap more than this we keep only the better one
 
+# hsv pre filter for evaluation
+# before running a tile through the model we check if it has any red/white pixels
+# using our HSV mask. tiles with zero red/white content cant possibly contain waldo
+# since his whole thing is the red and white striped shirt
+# this is basically a cheap first stage filter that eliminates obvious negatives
+# without needing the expensive model inference
+# the threshold is the minimum fraction of pixels that must be red or white
+# 0.005 means at least 0.5% of the tile needs to have waldos colors
+HSV_FILTER_THRESHOLD = 0.005
+
 # focal loss
 # the standard cross entropy loss treats all negative tiles equally
 # but most negative tiles are easy (blue sky, green grass, empty walls)

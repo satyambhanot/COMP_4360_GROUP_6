@@ -28,8 +28,10 @@ from nms import apply_nms
 from config import (
     CHECKPOINTS_DIR, BATCH_SIZE, INPUT_SIZE,
     IMAGENET_MEAN, IMAGENET_STD, RAW_IMAGES,
-    USE_PRETRAINED_SSD, NMS_CONFIDENCE_THRESHOLD
+    USE_PRETRAINED_SSD, NMS_CONFIDENCE_THRESHOLD,
+    HSV_FILTER_THRESHOLD
 )
+from pre_processing import ApplyHSVMask
 
 # where we save all the output images and results
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), "results")
@@ -137,24 +139,60 @@ def run_predictions(model, dataloader, device):
     # for each tile we record: did the model predict waldo? what was the confidence?
     # and what was the actual ground truth label?
     # we use these to compute metrics and draw visualizations
+    #
+    # before running inference we apply an HSV pre filter
+    # tiles with no red/white pixels at all cant possibly have waldo
+    # this is a cheap first stage filter inspired by the Bangor university paper
+    # which used a Haar cascade as their first stage
+    # we use our HSV mask instead since we already built it for preprocessing
 
     all_predictions = [] # 1 if model thinks waldo is in this tile, 0 if not
     all_labels = [] # the actual ground truth label (0 or 1)
     all_confidences = [] # the highest waldo confidence score for each tile
     all_nms_results = [] # the filtered boxes and scores from NMS for visualization
+    hsv_filtered = 0 # count how many tiles we skipped with the HSV pre filter
 
     with torch.no_grad():
         for images, labels, bboxes in dataloader:
             images = images.to(device)
 
+            # HSV pre filter: check each tile for red/white pixels before running the model
+            # compute the HSV mask and see what fraction of pixels light up
+            # tiles with no waldo colors get marked as negative without model inference
+            hsv_mask = ApplyHSVMask(images)
+            # hsv_mask is [N, 1, H, W], compute the mean per tile
+            hsv_scores = hsv_mask.view(hsv_mask.shape[0], -1).mean(dim=1) # [N]
+
+            # figure out which tiles pass the HSV filter
+            # we still need to run the model on tiles that pass
+            passes_filter = hsv_scores >= HSV_FILTER_THRESHOLD
+
+            # for tiles that dont pass, immediately mark as negative
+            for i in range(len(labels)):
+                if not passes_filter[i]:
+                    all_predictions.append(0)
+                    all_labels.append(labels[i].item())
+                    all_confidences.append(0.0)
+                    all_nms_results.append((torch.zeros(0, 4), torch.zeros(0)))
+                    hsv_filtered += 1
+
+            # if all tiles in this batch were filtered out, skip model inference
+            if not passes_filter.any():
+                continue
+
+            # only run the model on tiles that passed the filter
+            filtered_images = images[passes_filter]
+            filtered_indices = passes_filter.nonzero(as_tuple=True)[0]
+
             if hasattr(model, "model_type") and model.model_type == "pretrained_ssd":
                 # pretrained SSD returns detections directly in eval mode
-                # each detection is a dict with boxes, scores, labels already filtered by NMS
-                detections = model(images)
+                # only run on filtered tiles to save inference time
+                detections = model(filtered_images)
 
-                for i in range(len(detections)):
-                    det = detections[i]
-                    label = labels[i].item()
+                for j in range(len(detections)):
+                    det = detections[j]
+                    orig_idx = filtered_indices[j].item()
+                    label = labels[orig_idx].item()
 
                     # filter to only waldo predictions (label 1, not background)
                     waldo_mask = det["labels"] == 1
@@ -175,12 +213,13 @@ def run_predictions(model, dataloader, device):
 
             else:
                 # our custom model returns raw predictions, we run our own NMS
-                locs, cls_scores, anchors = model(images)
+                locs, cls_scores, anchors = model(filtered_images)
                 nms_results = apply_nms(locs, cls_scores, anchors)
 
-                for i in range(images.shape[0]):
-                    boxes, scores = nms_results[i]
-                    label = labels[i].item()
+                for j in range(filtered_images.shape[0]):
+                    boxes, scores = nms_results[j]
+                    orig_idx = filtered_indices[j].item()
+                    label = labels[orig_idx].item()
 
                     if boxes.shape[0] > 0:
                         prediction = 1
@@ -194,6 +233,7 @@ def run_predictions(model, dataloader, device):
                     all_confidences.append(confidence)
                     all_nms_results.append((boxes, scores))
 
+    print(f"  HSV pre-filter skipped {hsv_filtered} tiles with no red/white pixels")
     return all_predictions, all_labels, all_confidences, all_nms_results
 
 

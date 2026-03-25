@@ -61,6 +61,11 @@ echo "  Step 2: Generating tiles from raw images"
 echo "========================================"
 echo "this reads the raw wheres waldo images and chops them into 256x256 tiles"
 echo ""
+# clean out old tiles first so we dont have leftover 64x64 and 128x128 from previous runs
+if [ -d "data/processed" ]; then
+    echo "cleaning old tiles..."
+    rm -rf data/processed
+fi
 $PYTHON src/data_pipeline.py
 echo ""
 

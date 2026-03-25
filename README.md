@@ -6,7 +6,9 @@
 **Instructor:** Dr. Christopher Henry
 **Date:** March 2026
 
-This project adapts a strawberry detection system (Lamb & Chuah, IEEE Big Data 2018) to the domain of locating Waldo in "Where's Waldo?" puzzle illustrations. We replace the original 3-layer CNN with a MobileNet V3 Large backbone, extend the SSD detection heads from 4 to 6 levels, and introduce dual HSV masking with Sobel edge detection to exploit Waldo's distinctive red-and-white stripe pattern. The model processes high-resolution puzzle images as overlapping tiles at 64x64, 128x128, and 256x256 resolutions, predicting per-tile bounding boxes for Waldo's location.
+This project adapts a strawberry detection system (Lamb & Chuah, IEEE Big Data 2018) to the domain of locating Waldo in "Where's Waldo?" puzzle illustrations. We use an SSD300 VGG16 pretrained on COCO as our primary model, replacing the classification head to detect Waldo specifically. Our main contribution is a custom preprocessing pipeline that adds HSV color masking and Sobel edge detection channels to exploit Waldo's red and white stripe pattern. The model processes high resolution puzzle images as tiles at 64x64, 128x128, and 256x256 resolutions, predicting per tile bounding boxes for Waldo's location.
+
+We also built a custom SSD with a MobileNetV2 backbone and 5 detection heads trained from scratch, which serves as a baseline for comparison. Both models use the same HSV + Sobel preprocessing.
 
 
 ## Project Structure
@@ -16,124 +18,218 @@ COMP_4360_GROUP_6/
 ├── README.md
 ├── .gitignore
 ├── requirements.txt
+├── run.sh                        # runs the entire pipeline start to finish
 ├── train.py                      # entry point for training the model
 ├── evaluate.py                   # entry point for testing and visualization
-├── evaluate_ablation.py          # ablation studies to test each component
+├── evaluate_ablation.py          # ablation study plans (comments only for now)
+├── test_confidence.py            # quick confidence check on test tiles
 │
 ├── src/
 │   ├── config.py                 # all settings in one place
-│   ├── data_pipeline.py          # tiling, dataset, dataloader
+│   ├── data_pipeline.py          # tiling, dataset, dataloader, augmentation
 │   ├── pre_processing.py         # HSV mask, Sobel edges, preprocess_batch
-│   ├── MobileV2Backbone.py       # MobileNetV2 feature extractor
-│   ├── ssd.py                    # single SSD detection block
+│   ├── MobileV2Backbone.py       # MobileNetV2 feature extractor (custom model)
+│   ├── ssd.py                    # single SSD detection block (custom model)
 │   ├── ConcatenateAnchors.py     # anchor generation and prediction reshaping
-│   ├── model.py                  # full model wiring everything together
+│   ├── model.py                  # WaldoDetector + WaldoDetectorPretrained
 │   └── nms.py                    # non maximum suppression
 │
 ├── data/
 │   ├── raw/
-│   │   ├── images/               # 19 original wheres waldo images
-│   │   └── annotations/          # 19 XML bounding box annotations
+│   │   ├── images/               # 258 wheres waldo images (19 original + 239 variants)
+│   │   └── annotations/          # 258 XML bounding box annotations (Pascal VOC format)
 │   └── processed/                # generated tiles and splits.json
 │
-└── checkpoints/                  # saved model weights
+├── checkpoints/                  # saved model weights and training history
+└── results/                      # evaluation outputs, plots, and run log
+```
+
+
+## How to Run
+
+The easiest way to run everything is the shell script. It handles the full pipeline from tiling to training to evaluation:
+
+```bash
+bash run.sh
+```
+
+This will:
+1. Install dependencies from requirements.txt
+2. Tile the raw images at three resolutions
+3. Print a model summary
+4. Train the model (with early stopping)
+5. Run a sanity check on training tiles
+6. Test confidence on test tiles
+7. Run full evaluation with metrics and visualizations
+
+All output gets saved to `results/` and the complete log goes to `results/run_log.txt`.
+
+To run individual steps manually:
+
+```bash
+pip install -r requirements.txt
+python src/data_pipeline.py    # generate tiles
+python train.py                # train the model
+python evaluate.py             # evaluate and generate plots
 ```
 
 
 ## Pipeline Steps
 
-The full detection pipeline follows these steps. Each step maps to a file in the codebase.
+### Step 1: Configuration (src/config.py)
 
-### Step 1: Configuration (config.py) [DONE]
-- All settings for the project live in one file
-- Paths, tile sizes, thresholds, model architecture, training parameters
-- Other files import from here instead of hardcoding values
-- Makes it easy to change a setting without hunting through every file
+All settings for the project live in one file. Paths, tile sizes, color thresholds, model architecture parameters, training hyperparameters, augmentation settings. Other files import from here so we only have to change a setting in one place.
 
-### Step 2: Data Pipeline (data_pipeline.py) [DONE]
-- Takes the 19 raw images and their XML annotations
-- Chops each image into tiles at three resolutions (64x64, 128x128, 256x256)
-- Checks which tiles contain Waldo using overlap with the bounding box
-- Splits tiles into train/val/test sets by image id so theres no data leaking
-- Provides a PyTorch Dataset and DataLoader so other files can easily load batches
+Key settings:
+- `USE_PRETRAINED_SSD = True` switches between pretrained SSD300 and custom SSD
+- `NUM_EPOCHS = 1000` with early stopping patience of 50
+- `SAMPLING_BALANCE_FACTOR = 20` controls how often positive tiles are sampled during training
+- `NMS_CONFIDENCE_THRESHOLD = 0.3` for pretrained SSD (0.5 for custom)
 
-### Step 3: Pre Processing (pre_processing.py) [DONE]
-- Takes a batch of image tiles and creates two extra "cheat sheet" channels
-- HSV mask highlights red and white pixels (Waldos stripes)
-- Sobel edge detector highlights strong edges (Waldos stripe pattern creates horizontal edges)
-- Concatenates these with the original 3 RGB channels to give the model 5 channels instead of 3
-- Gives the model extra hints about where Waldo might be
+### Step 2: Data Pipeline (src/data_pipeline.py)
 
-### Step 4: Feature Extraction (MobileV2Backbone.py) [DONE]
-- Uses a pretrained MobileNetV2 (trained on ImageNet) as a feature extractor
-- Takes only the first 11 layers of MobileNet
-- Turns a 256x256 tile into a 16x16 feature map with 64 channels
-- MobileNet has already learned to recognize shapes, edges, and textures so we dont start from scratch
+Takes the 258 raw images and their XML annotations and chops each image into tiles at three resolutions (64x64, 128x128, 256x256). Checks which tiles contain Waldo by computing overlap with the bounding box annotation. If at least 50% of Waldo is inside a tile, that tile gets labeled as positive.
 
-### Step 5: SSD Detection Heads (ssd.py) [DONE]
-- A single SSD block that takes a feature map and predicts two things
-- Bounding box offsets (where is Waldo relative to anchor positions)
-- Class scores (Waldo or not Waldo)
-- Downsamples the feature map by half so the next head can detect at a coarser scale
-- We chain multiple of these together to detect Waldo at different sizes
+Splits tiles into train/val/test sets by image id (70/15/15) so the model never sees tiles from the same image in both training and testing. This prevents data leaking where the model memorizes background patterns instead of learning what Waldo looks like.
 
-### Step 6: Concatenate Anchors (ConcatenateAnchors.py) [DONE]
-- Generates anchor box positions at each grid size (16x16, 8x8, 4x4, 2x2, 1x1)
-- Reshapes the raw SSD output from convolution format into flat lists of predictions
-- Combines predictions from all heads into two final tensors
-- All bounding boxes [batch, 1364, 4] and all class scores [batch, 1364, 2]
-- 1364 total anchors across all heads (1024 + 256 + 64 + 16 + 4)
+Also handles data augmentation for training:
+- Weighted random sampling so positive tiles show up more often (we have ~259 positive vs ~90,000 negative tiles)
+- Horizontal flip with bounding box adjustment
+- Color jitter on positive tiles only (brightness, contrast, saturation)
+- Random grayscale conversion (10% chance)
+- Gaussian blur (20% chance)
+- Random sharpness adjustment (20% chance)
 
-### Step 7: Full Model (model.py) [NEEDS WORK]
-- Wire everything together into one nn.Module
-- Image tile goes in, Waldo predictions come out
-- Pre processing adds extra channels (3 to 5)
-- A 1x1 conv merges 5 channels back to 3 for the backbone
-- Backbone extracts features
-- SSD heads make predictions at different scales
-- ConcatenateAnchors combines all predictions
+### Step 3: Pre Processing (src/pre_processing.py)
 
-### Step 8: Non Maximum Suppression (nms.py) [NEEDS WORK]
-- Filters out overlapping bounding box predictions
-- When multiple anchors predict Waldo in roughly the same spot
-- Picks the one with the highest confidence and throws away the rest
-- Only used during inference, not during training
+Takes a batch of image tiles and creates two extra channels that give the model hints about where Waldo might be:
 
-### Step 9: Training (train.py) [NEEDS WORK]
-- Loads training and validation data from the data pipeline
-- Runs tiles through the model and computes loss
-- SSD loss combines smooth L1 (for bounding boxes) and cross entropy (for classification)
-- Handles class imbalance (about 14000 negative tiles but only 56 positive)
-- Saves checkpoints to the checkpoints folder after each epoch
+1. **HSV mask**: converts to HSV color space and highlights pixels that are red or white, because Waldo's stripes are red and white. Uses configurable hue, saturation, and value thresholds from config.py
+2. **Sobel edge detection on the HSV mask**: runs Sobel filters on the HSV mask output (not on the raw image). This focuses edge detection specifically on Waldo's stripe pattern rather than detecting every edge in the busy scene
 
-### Step 10: Evaluation (evaluate.py) [NEEDS WORK]
-- Loads a saved model checkpoint
-- Runs it on test tiles the model has never seen
-- Computes accuracy, precision, and recall
-- Visualizes results by drawing predicted bounding boxes on tiles
-- Can stitch predictions back onto the full image to show where Waldo is
+The model gets 5 channels total: 3 RGB + 1 HSV mask + 1 Sobel edges. A learnable 1x1 convolution merges these back to 3 channels for the backbone.
 
-### Step 11: Ablation Studies (evaluate_ablation.py) [NEEDS WORK]
-- Tests if each piece of the pipeline actually helps
-- Runs the model with different components turned off
-- No HSV mask, no Sobel edges, no pre processing at all, fewer SSD heads
-- Compares results to show which components matter most
-- This is what shows the professor we understand why each part is there
+### Step 4: Feature Extraction
+
+**Pretrained SSD (primary model):** Uses the VGG16 backbone from SSD300 pretrained on COCO (330,000 images, 90 object classes). The entire backbone is unfrozen and fine tuned with a lower learning rate (0.0001) so it can adapt from COCO photos to Waldo's cartoon style without losing what it already knows.
+
+**Custom SSD (baseline model):** Uses the first 11 layers of MobileNetV2 pretrained on ImageNet as a frozen feature extractor. Turns a 256x256 tile into a 16x16 feature map with 64 channels.
+
+### Step 5: Detection Heads
+
+**Pretrained SSD:** Uses the original SSD300 detection heads from COCO. We replace only the classification head from 91 classes to 2 (Waldo + background). The box regression head stays the same. Dropout (20%) is applied after the preprocessing channel merge for regularization.
+
+**Custom SSD (src/ssd.py):** 5 custom SSD blocks chained together. Each block predicts bounding box offsets and class scores at its scale, then pools the feature map to half size for the next block:
+- Head 1: 16x16 (1024 anchors)
+- Head 2: 8x8 (256 anchors)
+- Head 3: 4x4 (64 anchors)
+- Head 4: 2x2 (16 anchors)
+- Head 5: 1x1 (4 anchors)
+- Total: 1364 anchors
+
+### Step 6: Anchor Generation (src/ConcatenateAnchors.py)
+
+Generates anchor box positions at each grid size. Reshapes the raw SSD output from convolution format into flat lists of predictions. Combines predictions from all heads into two final tensors: all bounding boxes [batch, total_anchors, 4] and all class scores [batch, total_anchors, 2]. Only used for the custom SSD since torchvision handles this internally for the pretrained model.
+
+### Step 7: Non Maximum Suppression (src/nms.py)
+
+After the model makes predictions for every anchor, many anchors in the same area will fire. NMS keeps only the highest confidence prediction in each region and removes overlapping boxes (IoU threshold 0.5). Only used during inference, not during training.
+
+### Step 8: Training (train.py)
+
+Handles both model types:
+
+**Pretrained SSD:**
+- SGD optimizer with momentum 0.9
+- Differential learning rates: backbone at 0.0001, detection heads at 0.001
+- Weight decay 0.0001 (L2 regularization)
+- Torchvision SSD returns its own loss dict (classification + bbox regression)
+- Gradient clipping (max_norm=1.0)
+
+**Custom SSD:**
+- Adam optimizer at 0.001
+- Custom SSD loss: smooth L1 for bounding boxes + cross entropy for classification
+- Hard negative mining to handle class imbalance
+
+Both models use:
+- ReduceLROnPlateau scheduler (halves LR after 10 epochs of no improvement)
+- Early stopping (stops training after 50 epochs of no improvement)
+- Checkpoints saved for best model and last model
+- Training history saved to JSON for plotting
+
+### Step 9: Evaluation (evaluate.py)
+
+Loads the best checkpoint and runs on test tiles the model has never seen. Outputs:
+
+- **Metrics**: accuracy, precision, recall, F1 score, confusion matrix
+- **Threshold analysis**: tests confidence thresholds from 0.1 to 0.9, finds the best F1 threshold
+- **Precision recall curve**: standard PR curve for the report
+- **Confidence distribution**: histogram comparing positive vs negative tile confidences
+- **Training curves**: train and validation loss per epoch
+- **Sample tiles**: saves examples of true positives (green box), false positives (red box), and false negatives (yellow box)
+- **Full image demo**: runs detection on 3 full sized Waldo images, draws predicted bounding boxes
+
+All results saved to `results/` folder as images and JSON.
+
+
+## Dataset
+
+We use 258 images total:
+- 19 original Where's Waldo puzzle illustrations with hand drawn bounding box annotations
+- 102 images from the FindingWaldo dataset (originals)
+- 137 brightness and gamma variant images from FindingWaldo
+
+All annotations are in Pascal VOC XML format. The data pipeline generates roughly 90,000+ tiles across the three resolutions, of which about 259 contain Waldo (extreme class imbalance).
+
+
+## Models
+
+| | Pretrained SSD300 (primary) | Custom WaldoDetector (baseline) |
+|---|---|---|
+| Backbone | VGG16 (COCO pretrained) | MobileNetV2 (ImageNet pretrained) |
+| Detection heads | SSD300 heads (COCO pretrained) | 5 custom SSD blocks (from scratch) |
+| Backbone training | Fine tuned (unfrozen, lower LR) | Frozen |
+| Total parameters | ~35M | ~2.5M |
+| Preprocessing | HSV mask + Sobel on HSV | HSV mask + Sobel on HSV |
+| Optimizer | SGD (momentum 0.9) | Adam |
+| Config flag | `USE_PRETRAINED_SSD = True` | `USE_PRETRAINED_SSD = False` |
+
+
+## Ablation Studies (Planned)
+
+We have 5 ablation studies designed in `evaluate_ablation.py`:
+
+1. **Sobel edge bypass**: full model vs no Sobel channel
+2. **Model size**: 5 SSD heads vs 3 SSD heads
+3. **Tile resolution**: 64x64 vs 128x128 vs 256x256
+4. **Color information**: full color vs grayscale vs black and white
+5. **Pretrained vs random backbone**: ImageNet weights vs random initialization
+
+Each experiment trains on the same data with the same random seed for fair comparison. The model already supports ablation flags (`use_hsv`, `use_sobel`, `use_pretrained`, `num_heads`).
 
 
 ## Configuration
 
-All settings are centralized in `src/config.py`. This includes file paths, tile sizes, overlap thresholds, train/val/test ratios, ImageNet normalization values, HSV color thresholds, model architecture parameters (backbone layers, number of SSD heads, anchors per head), and training hyperparameters. Change settings there instead of editing individual files.
+All settings are centralized in `src/config.py`. This includes file paths, tile sizes, overlap thresholds, train/val/test ratios, ImageNet normalization values, HSV color thresholds, model architecture parameters, data augmentation settings, training hyperparameters, and NMS thresholds. Change settings there instead of editing individual files.
 
 
-## Setup
+## Requirements
 
-```
+- Python 3.8+
+- PyTorch (with CUDA support recommended)
+- torchvision
+- Pillow
+- matplotlib
+
+Install with:
+```bash
 pip install -r requirements.txt
-python src/data_pipeline.py
 ```
 
-The first command installs dependencies. The second tiles the raw images and creates the train/val/test splits.
+
+## Hardware
+
+Training was done on an NVIDIA GTX 1080 Ti. The pipeline also supports Apple Silicon (MPS) and CPU, but training on CPU will be significantly slower. run.sh prints hardware info at the start of each run for reproducibility.
 
 
 ## References
@@ -144,9 +240,12 @@ The first command installs dependencies. The second tiles the raw images and cre
 
 [3] bckenstler, "TheresWaldo," GitHub repository. [Online]. Available: https://github.com/bckenstler/TheresWaldo
 
-[4] A. Howard et al., "Searching for MobileNetV3," *Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)*, 2019, pp. 1314-1324.
+[4] tadejmagajna, "FindingWaldo," GitHub repository. [Online]. Available: https://github.com/tadejmagajna/FindingWaldo
 
-[5] W. Liu et al., "SSD: Single Shot MultiBox Detector," *European Conference on Computer Vision (ECCV)*, 2016, pp. 21-37.
+[5] A. Howard et al., "Searching for MobileNetV3," *Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)*, 2019, pp. 1314-1324.
+
+[6] W. Liu et al., "SSD: Single Shot MultiBox Detector," *European Conference on Computer Vision (ECCV)*, 2016, pp. 21-37.
+
 
 ## License
 

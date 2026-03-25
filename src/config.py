@@ -86,7 +86,7 @@ if USE_PRETRAINED_SSD:
 #      we only do this on positive training tiles, not on val/test
 #      and we only change colors not positions so the bounding box stays the same
 AUGMENT_TRAINING = True
-SAMPLING_BALANCE_FACTOR = 8 if USE_PRETRAINED_SSD else 5 # was 20 before but that made batches nearly 50/50 which is way too aggressive
+SAMPLING_BALANCE_FACTOR = 10 if USE_PRETRAINED_SSD else 5 # bumped from 8 to 10 now that we have way more positive tiles from augmentation
 COLOR_JITTER_BRIGHTNESS = 0.2
 COLOR_JITTER_CONTRAST = 0.2
 COLOR_JITTER_SATURATION = 0.2

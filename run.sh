@@ -59,7 +59,7 @@ echo ""
 echo "========================================"
 echo "  Step 2: Generating tiles from raw images"
 echo "========================================"
-echo "this reads the raw wheres waldo images and chops them into 256x256 tiles"
+echo "this tiles images with 4 grid offsets and generates random crops around waldo"
 echo ""
 # clean out old tiles first so we dont have leftover 64x64 and 128x128 from previous runs
 if [ -d "data/processed" ]; then

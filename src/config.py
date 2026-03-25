@@ -91,7 +91,6 @@ COLOR_JITTER_BRIGHTNESS = 0.2
 COLOR_JITTER_CONTRAST = 0.2
 COLOR_JITTER_SATURATION = 0.2
 FLIP_PROBABILITY = 0.5 # chance of flipping a training tile horizontally
-GRAYSCALE_PROBABILITY = 0.0 # turned this off, it was killing our HSV mask since theres no color left in grayscale
 BLUR_PROBABILITY = 0.2 # chance of applying gaussian blur to a training tile
 BLUR_KERNEL_SIZE = 3 # size of the blur kernel
 SHARPNESS_PROBABILITY = 0.2 # chance of randomly adjusting sharpness

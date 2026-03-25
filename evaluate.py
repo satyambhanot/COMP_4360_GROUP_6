@@ -29,7 +29,7 @@ from config import (
     CHECKPOINTS_DIR, BATCH_SIZE, INPUT_SIZE,
     IMAGENET_MEAN, IMAGENET_STD, RAW_IMAGES,
     USE_PRETRAINED_SSD, NMS_CONFIDENCE_THRESHOLD,
-    HSV_FILTER_THRESHOLD
+    HSV_FILTER_THRESHOLD, USE_TTA
 )
 from pre_processing import ApplyHSVMask
 
@@ -184,6 +184,26 @@ def run_predictions(model, dataloader, device):
             filtered_images = images[passes_filter]
             filtered_indices = passes_filter.nonzero(as_tuple=True)[0]
 
+            # also run on flipped versions if TTA is enabled
+            # waldo looks the same facing left or right so flipping is safe
+            # we take the max confidence between original and flipped
+            flipped_confs = {}
+            if USE_TTA:
+                flipped_images = torch.flip(filtered_images, dims=[3]) # flip horizontally
+                if hasattr(model, "model_type") and model.model_type == "pretrained_ssd":
+                    flip_dets = model(flipped_images)
+                    for j in range(len(flip_dets)):
+                        det = flip_dets[j]
+                        waldo_mask = det["labels"] == 1
+                        scores = det["scores"][waldo_mask]
+                        flipped_confs[j] = scores.max().item() if scores.shape[0] > 0 else 0.0
+                else:
+                    flip_locs, flip_cls, flip_anchors = model(flipped_images)
+                    flip_nms = apply_nms(flip_locs, flip_cls, flip_anchors)
+                    for j in range(filtered_images.shape[0]):
+                        _, scores = flip_nms[j]
+                        flipped_confs[j] = scores.max().item() if scores.shape[0] > 0 else 0.0
+
             if hasattr(model, "model_type") and model.model_type == "pretrained_ssd":
                 # pretrained SSD returns detections directly in eval mode
                 # only run on filtered tiles to save inference time
@@ -206,6 +226,13 @@ def run_predictions(model, dataloader, device):
                         prediction = 0
                         confidence = 0.0
 
+                    # if TTA is on, take the max confidence between original and flipped
+                    if USE_TTA and j in flipped_confs:
+                        flip_conf = flipped_confs[j]
+                        if flip_conf > confidence:
+                            confidence = flip_conf
+                            prediction = 1
+
                     all_predictions.append(prediction)
                     all_labels.append(label)
                     all_confidences.append(confidence)
@@ -227,6 +254,13 @@ def run_predictions(model, dataloader, device):
                     else:
                         prediction = 0
                         confidence = 0.0
+
+                    # if TTA is on, take the max confidence between original and flipped
+                    if USE_TTA and j in flipped_confs:
+                        flip_conf = flipped_confs[j]
+                        if flip_conf > confidence:
+                            confidence = flip_conf
+                            prediction = 1
 
                     all_predictions.append(prediction)
                     all_labels.append(label)

@@ -115,6 +115,14 @@ NMS_IOU_THRESHOLD = 0.5 # if two boxes overlap more than this we keep only the b
 # 0.005 means at least 0.5% of the tile needs to have waldos colors
 HSV_FILTER_THRESHOLD = 0.005
 
+# test time augmentation (TTA)
+# during evaluation we also run each tile through the model flipped horizontally
+# and take the max confidence between original and flipped versions
+# waldo looks the same facing left or right so this is safe
+# if hes partially cut off at a tile edge the flipped version might catch him better
+# doubles the inference time but we only have a few hundred test tiles so its fast
+USE_TTA = True
+
 # focal loss
 # the standard cross entropy loss treats all negative tiles equally
 # but most negative tiles are easy (blue sky, green grass, empty walls)

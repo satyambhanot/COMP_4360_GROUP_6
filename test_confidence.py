@@ -16,7 +16,7 @@ import torch
 import torch.nn.functional as F
 from model import WaldoDetector, WaldoDetectorPretrained
 from data_pipeline import get_dataloader
-from config import CHECKPOINTS_DIR, USE_PRETRAINED_SSD
+from config import CHECKPOINTS_DIR, USE_PRETRAINED_SSD, NMS_CONFIDENCE_THRESHOLD
 
 # supports nvidia gpu (cuda), apple silicon gpu (mps), or cpu
 if torch.cuda.is_available():
@@ -50,7 +50,7 @@ print(f"loaded checkpoint from epoch {checkpoint['epoch']} (model: {model_type})
 loader = get_dataloader(split="test", tile_size=256, batch_size=16, shuffle=False)
 
 print(f"\nchecking confidence scores on test tiles...")
-print(f"NMS threshold is 0.5, anything below this gets thrown away\n")
+print(f"NMS threshold is {NMS_CONFIDENCE_THRESHOLD}, anything below this gets thrown away\n")
 
 total_tiles = 0
 tiles_above_threshold = 0
@@ -73,7 +73,7 @@ with torch.no_grad():
                 marker = ""
                 if label == 1:
                     marker = " <== WALDO IS HERE"
-                if conf > 0.5:
+                if conf > NMS_CONFIDENCE_THRESHOLD:
                     tiles_above_threshold += 1
                     marker += " [ABOVE THRESHOLD]"
 
@@ -91,7 +91,7 @@ with torch.no_grad():
                 marker = ""
                 if label == 1:
                     marker = " <== WALDO IS HERE"
-                if conf > 0.5:
+                if conf > NMS_CONFIDENCE_THRESHOLD:
                     tiles_above_threshold += 1
                     marker += " [ABOVE THRESHOLD]"
 
@@ -100,11 +100,11 @@ with torch.no_grad():
 
 print(f"\nsummary:")
 print(f"  total test tiles: {total_tiles}")
-print(f"  tiles above 0.5 threshold: {tiles_above_threshold}")
-print(f"  tiles below 0.5 threshold: {total_tiles - tiles_above_threshold}")
+print(f"  tiles above {NMS_CONFIDENCE_THRESHOLD} threshold: {tiles_above_threshold}")
+print(f"  tiles below {NMS_CONFIDENCE_THRESHOLD} threshold: {total_tiles - tiles_above_threshold}")
 
 if tiles_above_threshold == 0:
-    print(f"\n  the model never reaches 0.5 confidence on any test tile")
+    print(f"\n  the model never reaches {NMS_CONFIDENCE_THRESHOLD} confidence on any test tile")
     print(f"  this means NMS throws away all predictions")
     print(f"  we might need to lower NMS_CONFIDENCE_THRESHOLD in config.py")
     print(f"  or train for more epochs")

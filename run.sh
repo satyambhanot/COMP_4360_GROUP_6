@@ -59,8 +59,7 @@ echo ""
 echo "========================================"
 echo "  Step 2: Generating tiles from raw images"
 echo "========================================"
-echo "this reads 19 raw wheres waldo images and chops them into tiles"
-echo "at three resolutions (64x64, 128x128, 256x256)"
+echo "this reads the raw wheres waldo images and chops them into 256x256 tiles"
 echo ""
 $PYTHON src/data_pipeline.py
 echo ""
@@ -83,7 +82,7 @@ if USE_PRETRAINED_SSD:
     print(f'  preprocessing: HSV mask + Sobel edge detection on HSV')
     print(f'  backbone: VGG16 (fine tuned with lower LR, pretrained on COCO)')
     print(f'  detection heads: SSD heads (fine tuned with higher LR)')
-    print(f'  regularization: dropout {0.2}, weight decay {0.0001}')
+    print(f'  regularization: weight decay {0.0001}')
 else:
     print(f'  architecture: Custom WaldoDetector')
     print(f'  preprocessing: HSV mask + Sobel edge detection on HSV')

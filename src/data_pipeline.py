@@ -24,7 +24,7 @@ from config import (
     IMAGENET_MEAN, IMAGENET_STD,
     AUGMENT_TRAINING, SAMPLING_BALANCE_FACTOR,
     COLOR_JITTER_BRIGHTNESS, COLOR_JITTER_CONTRAST, COLOR_JITTER_SATURATION,
-    FLIP_PROBABILITY, GRAYSCALE_PROBABILITY,
+    FLIP_PROBABILITY,
     BLUR_PROBABILITY, BLUR_KERNEL_SIZE,
     SHARPNESS_PROBABILITY, SHARPNESS_FACTOR
 )
@@ -221,7 +221,13 @@ class WaldoTileDataset(Dataset):
         # inspired by augmentation techniques used in the FindingWaldo project
         # (github.com/utsavraj/FindingWaldo) which used 6 different augmentations
         # we apply these with random probability so not every tile gets every augmentation
-        self.grayscale = transforms.RandomGrayscale(p=GRAYSCALE_PROBABILITY)
+        #
+        # we originally had random grayscale here too but took it out
+        # waldos whole thing is his red and white stripes
+        # our HSV mask channel is literally built to find red and white pixels
+        # if we convert to grayscale theres no red or white to find anymore
+        # so we were basically telling the model "learn to find waldo by color"
+        # and also "sometimes ignore all color information", which is contradictory
         self.blur = transforms.GaussianBlur(kernel_size=BLUR_KERNEL_SIZE, sigma=(0.1, 1.0))
         self.sharpness = transforms.RandomAdjustSharpness(sharpness_factor=SHARPNESS_FACTOR, p=SHARPNESS_PROBABILITY)
 
@@ -272,10 +278,6 @@ class WaldoTileDataset(Dataset):
         # changes brightness, contrast, saturation randomly
         if label == 1:
             img = self.color_jitter(img)
-
-        # random grayscale with 10% chance on all training tiles
-        # forces the model to sometimes learn without color
-        img = self.grayscale(img)
 
         # gaussian blur with 20% chance on all training tiles
         # makes the model robust to slightly blurry images

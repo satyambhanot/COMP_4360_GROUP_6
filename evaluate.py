@@ -28,7 +28,7 @@ from nms import apply_nms
 from config import (
     CHECKPOINTS_DIR, BATCH_SIZE, INPUT_SIZE,
     IMAGENET_MEAN, IMAGENET_STD, RAW_IMAGES,
-    USE_PRETRAINED_SSD
+    USE_PRETRAINED_SSD, NMS_CONFIDENCE_THRESHOLD
 )
 
 # where we save all the output images and results
@@ -242,6 +242,82 @@ def compute_metrics(predictions, labels):
     }
 
 
+def compute_image_level_metrics(predictions, labels, confidences, dataset):
+    # the tile level metrics above tell us stuff like "precision is 0.24 across all tiles"
+    # but thats not really what we care about in practice
+    # what we actually want to know is: if i give you a full wheres waldo image
+    # can you tell me where waldo is? thats an image level question not a tile level one
+    #
+    # so we group all the test tiles back by their source image and ask:
+    #   for each image that has waldo, did the model detect him in at least one tile?
+    #   for each image, how many tiles gave false alarms?
+    # this gives us a much better picture of how useful the model actually is
+    #
+    # example: if we have 500 tiles from one image and 1 tile correctly finds waldo
+    # but 3 tiles have false positives, the tile level precision looks bad (1/4 = 25%)
+    # but at the image level we found waldo and only had 3 false alarms which is fine
+
+    # the dataset tiles list is in the same order as the dataloader output
+    # so we can just loop through both at the same time
+    image_results = {} # image_id -> {"has_waldo": bool, "found_waldo": bool, "false_positives": int}
+
+    for i, tile_info in enumerate(dataset.tiles):
+        if i >= len(predictions):
+            break
+
+        img_id = tile_info["image_id"]
+        if img_id not in image_results:
+            image_results[img_id] = {
+                "has_waldo": False,
+                "found_waldo": False,
+                "false_positives": 0,
+                "total_tiles": 0
+            }
+
+        image_results[img_id]["total_tiles"] += 1
+
+        if labels[i] == 1:
+            image_results[img_id]["has_waldo"] = True
+            if predictions[i] == 1:
+                image_results[img_id]["found_waldo"] = True
+
+        if predictions[i] == 1 and labels[i] == 0:
+            image_results[img_id]["false_positives"] += 1
+
+    # compute image level stats
+    images_with_waldo = [img_id for img_id, r in image_results.items() if r["has_waldo"]]
+    images_waldo_found = [img_id for img_id in images_with_waldo if image_results[img_id]["found_waldo"]]
+    images_clean = [img_id for img_id, r in image_results.items() if r["false_positives"] == 0]
+    total_fp = sum(r["false_positives"] for r in image_results.values())
+
+    num_images = len(image_results)
+    num_with_waldo = len(images_with_waldo)
+    num_found = len(images_waldo_found)
+    num_clean = len(images_clean)
+
+    detection_rate = num_found / num_with_waldo if num_with_waldo > 0 else 0
+    clean_rate = num_clean / num_images if num_images > 0 else 0
+    avg_fp = total_fp / num_images if num_images > 0 else 0
+
+    print(f"\nimage level metrics ({num_images} test images):")
+    print(f"  images containing waldo: {num_with_waldo}")
+    print(f"  waldo found in: {num_found}/{num_with_waldo} ({detection_rate:.1%})")
+    print(f"  images with zero false positives: {num_clean}/{num_images} ({clean_rate:.1%})")
+    print(f"  average false positives per image: {avg_fp:.1f}")
+    print(f"  total false positives across all images: {total_fp}")
+
+    return {
+        "num_test_images": num_images,
+        "images_with_waldo": num_with_waldo,
+        "waldo_found_in": num_found,
+        "image_detection_rate": detection_rate,
+        "images_no_false_positives": num_clean,
+        "clean_image_rate": clean_rate,
+        "avg_false_positives_per_image": avg_fp,
+        "total_false_positives": total_fp
+    }
+
+
 def analyze_thresholds(confidences, labels):
     # tests different NMS confidence thresholds to find the best one
     # a higher threshold means fewer false positives but might miss waldos
@@ -326,7 +402,7 @@ def plot_precision_recall_curve(confidences, labels):
     print(f"saved precision recall curve to results/precision_recall_curve.png")
 
 
-def save_results(metrics, confidences, labels, best_threshold=0.5, best_f1=0):
+def save_results(metrics, confidences, labels, best_threshold=0.5, best_f1=0, image_metrics=None):
     # saves all the evaluation results to a json file
     # this makes it easy to load the numbers into the report
     # or compare against ablation study results later
@@ -342,6 +418,10 @@ def save_results(metrics, confidences, labels, best_threshold=0.5, best_f1=0):
         "max_confidence_positive": max((c for c, l in zip(confidences, labels) if l == 1), default=0),
         "max_confidence_negative": max((c for c, l in zip(confidences, labels) if l == 0), default=0),
     }
+
+    # include image level metrics if we computed them
+    if image_metrics is not None:
+        results["image_level"] = image_metrics
 
     results_path = os.path.join(RESULTS_DIR, "evaluation_results.json")
     with open(results_path, "w") as f:
@@ -413,7 +493,7 @@ def plot_confidence_distribution(confidences, labels):
     plt.figure(figsize=(8, 5))
     plt.hist(neg_conf, bins=50, alpha=0.6, label=f"no waldo ({len(neg_conf)} tiles)", color="blue")
     plt.hist(pos_conf, bins=50, alpha=0.6, label=f"has waldo ({len(pos_conf)} tiles)", color="red")
-    plt.axvline(x=0.5, color="black", linestyle=":", label="confidence threshold (0.5)")
+    plt.axvline(x=NMS_CONFIDENCE_THRESHOLD, color="black", linestyle=":", label=f"confidence threshold ({NMS_CONFIDENCE_THRESHOLD})")
     plt.xlabel("waldo confidence score")
     plt.ylabel("number of tiles")
     plt.title("Confidence Score Distribution")
@@ -588,8 +668,11 @@ if __name__ == "__main__":
     print("\nrunning predictions on test set...")
     predictions, labels, confidences, nms_results = run_predictions(model, test_loader, device)
 
-    # compute and print metrics
+    # compute and print tile level metrics
     metrics = compute_metrics(predictions, labels)
+
+    # compute image level metrics (did we find waldo in each test image?)
+    image_metrics = compute_image_level_metrics(predictions, labels, confidences, test_loader.dataset)
 
     # analyze different confidence thresholds to find the best one
     print("\nanalyzing confidence thresholds...")
@@ -597,7 +680,7 @@ if __name__ == "__main__":
 
     # save all results to json for the report
     print("\nsaving results to json...")
-    save_results(metrics, confidences, labels, best_threshold, best_f1)
+    save_results(metrics, confidences, labels, best_threshold, best_f1, image_metrics)
 
     # plot the confidence distribution
     print("\nplotting confidence distribution...")

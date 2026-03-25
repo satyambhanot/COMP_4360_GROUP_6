@@ -15,7 +15,7 @@ CHECKPOINTS_DIR = os.path.join(PROJECT_ROOT, "checkpoints")
 
 # data pipeline
 # controls how we chop up images and divide them into train/val/test
-TILE_SIZES = [64, 128, 256]
+TILE_SIZES = [256] # we only use 256x256 tiles, the 64 and 128 sizes were never actually used anywhere
 OVERLAP_THRESHOLD = 0.5 # fraction of waldo that must be inside a tile to count as positive
 TRAIN_RATIO = 0.7
 VAL_RATIO = 0.15 # test ratio is whatever is left over (0.15)
@@ -78,12 +78,12 @@ if USE_PRETRAINED_SSD:
 #      we only do this on positive training tiles, not on val/test
 #      and we only change colors not positions so the bounding box stays the same
 AUGMENT_TRAINING = True
-SAMPLING_BALANCE_FACTOR = 20 if USE_PRETRAINED_SSD else 5 # pretrained SSD needs more negatives to learn what is NOT waldo
+SAMPLING_BALANCE_FACTOR = 8 if USE_PRETRAINED_SSD else 5 # was 20 before but that made batches nearly 50/50 which is way too aggressive
 COLOR_JITTER_BRIGHTNESS = 0.2
 COLOR_JITTER_CONTRAST = 0.2
 COLOR_JITTER_SATURATION = 0.2
 FLIP_PROBABILITY = 0.5 # chance of flipping a training tile horizontally
-GRAYSCALE_PROBABILITY = 0.1 # chance of converting a training tile to grayscale
+GRAYSCALE_PROBABILITY = 0.0 # turned this off, it was killing our HSV mask since theres no color left in grayscale
 BLUR_PROBABILITY = 0.2 # chance of applying gaussian blur to a training tile
 BLUR_KERNEL_SIZE = 3 # size of the blur kernel
 SHARPNESS_PROBABILITY = 0.2 # chance of randomly adjusting sharpness
@@ -118,5 +118,8 @@ LR_SCHEDULER_FACTOR = 0.5
 # early stopping
 # if the validation loss hasnt improved for this many epochs in a row
 # we stop training to save time since the model isnt learning anymore
-# set to 50 so the model has more time to recover after LR drops
-EARLY_STOPPING_PATIENCE = 50
+# we used to have this at 50 but realized thats way too long
+# with LR scheduler patience of 10, by epoch 25 the LR has already been
+# halved twice so the model is barely learning at that point anyway
+# no reason to keep going for another 25 epochs at a tiny LR
+EARLY_STOPPING_PATIENCE = 25

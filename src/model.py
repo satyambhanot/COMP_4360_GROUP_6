@@ -71,8 +71,7 @@ from config import (
     NUM_CLASSES, NUM_ANCHORS, SSD_KERNEL_SIZE,
     NUM_SSD_HEADS, BATCH_SIZE,
     USE_PRETRAINED_SSD, PRETRAINED_SSD_INPUT_SIZE,
-    IMAGENET_MEAN, IMAGENET_STD,
-    DROPOUT_RATE
+    IMAGENET_MEAN, IMAGENET_STD
 )
 from data_pipeline import get_dataloader
 import torch.nn.functional as F
@@ -254,13 +253,6 @@ class WaldoDetectorPretrained(nn.Module):
         # setting it to 0.1 means only detections the model is at least 10% confident about survive
         self.ssd.score_thresh = 0.1
 
-        # add dropout to the classification head to prevent overfitting
-        # the FindingWaldo repo used dropout with keep probability 0.8 (dropout rate 0.2)
-        # dropout randomly zeroes neurons during training which forces the model to learn
-        # redundant representations instead of memorizing specific patterns
-        # we add it after the classification head so it applies to the class predictions
-        self.dropout = nn.Dropout(p=DROPOUT_RATE)
-
         # unfreeze the ENTIRE backbone so it can adapt from COCO photos to waldo cartoons
         # previously we froze the core VGG16 layers but the FindingWaldo repo trained everything
         # the cartoon style of wheres waldo is very different from COCO photos
@@ -302,12 +294,14 @@ class WaldoDetectorPretrained(nn.Module):
             x = images
 
         # step 2: merge extra channels back to 3
+        # we used to have dropout here but it was messing things up
+        # putting dropout before the backbone means the VGG16 batch norm layers
+        # get noisy input during training but clean input during eval
+        # that mismatch between train and eval was hurting more than helping
+        # weight decay already handles regularization and the backbone was pretrained
+        # on 330k COCO images so its pretty resistant to overfitting on its own
         if self.channel_conv is not None:
             x = self.channel_conv(x)
-            # apply dropout after merging channels to regularize the preprocessed features
-            # during training this randomly drops 20% of the merged features
-            # forces the model to not over rely on any single preprocessing channel
-            x = self.dropout(x)
 
         # step 3: undo the ImageNet normalization from our dataloader
         # the torchvision SSD will apply its own normalization internally

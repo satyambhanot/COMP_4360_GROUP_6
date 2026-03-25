@@ -248,11 +248,25 @@ class WaldoDetectorPretrained(nn.Module):
         in_channels = [cls.in_channels for cls in self.ssd.head.classification_head.module_list]
         self.ssd.head.classification_head = SSDClassificationHead(in_channels, num_anchors, NUM_CLASSES)
 
-        # freeze the VGG16 backbone so it doesnt change during training
-        # only the detection heads (classification + regression) will be trained
-        # this is the same approach as our custom model but with a much stronger backbone
+        # set the minimum score threshold for detections during evaluation
+        # by default torchvision returns everything above 0.01 which floods us with junk
+        # setting it to 0.1 means only detections the model is at least 10% confident about survive
+        self.ssd.score_thresh = 0.1
+
+        # freeze most of the VGG16 backbone but unfreeze the extra feature layers
+        # the main VGG layers (child 0) learn universal features that work for any task
+        # the extra feature layers (child 1) are more task specific and benefit from fine tuning
+        # on our waldo cartoon images which look different from COCO photos
         for param in self.ssd.backbone.parameters():
             param.requires_grad = False
+
+        # unfreeze the extra feature layers of the backbone
+        # these are the additional conv layers added on top of VGG16 for multi scale detection
+        # they are more adaptable than the core VGG layers
+        backbone_children = list(self.ssd.backbone.children())
+        if len(backbone_children) > 1:
+            for param in backbone_children[-1].parameters():
+                param.requires_grad = True
 
     def forward(self, images, targets=None):
         # images is a batched tensor [N, 3, 256, 256] from our dataloader

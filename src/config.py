@@ -21,7 +21,7 @@ TRAIN_RATIO = 0.7
 VAL_RATIO = 0.15 # test ratio is whatever is left over (0.15)
 RANDOM_SEED = 42 # so splits are reproducible
 INPUT_SIZE = 256 # all tiles get resized to this before going into the backbone
-BATCH_SIZE = 16
+BATCH_SIZE = 24 if USE_PRETRAINED_SSD else 16 # larger batch for pretrained SSD gives more stable gradients
 
 # imagenet normalization
 # mobilenet was trained on imagenet so we normalize our images the same way
@@ -95,13 +95,15 @@ NMS_CONFIDENCE_THRESHOLD = 0.3 if USE_PRETRAINED_SSD else 0.5
 NMS_IOU_THRESHOLD = 0.5 # if two boxes overlap more than this we keep only the better one
 
 # training
-# will be used by train.py
-# pretrained SSD needs a much lower learning rate because its weights are already close to optimal
-# 0.0001 was too high and caused overfitting by epoch 2
-# 0.00005 gives the model time to adjust gently without destroying pretrained features
-# our custom model can use a higher rate since its heads start from random
-LEARNING_RATE = 0.00005 if USE_PRETRAINED_SSD else 0.001
-NUM_EPOCHS = 500
+# we use differential learning rates: higher for detection heads, lower for backbone
+# the detection heads have a replaced classification layer with random weights so they need to learn fast
+# the backbone is pretrained on COCO and just needs gentle adaptation to cartoon images
+# this is a common transfer learning technique that helps both parts learn at their own pace
+LEARNING_RATE = 0.001 if USE_PRETRAINED_SSD else 0.001
+BACKBONE_LR = 0.0001 # 10x lower than head LR so backbone adapts gently
+WEIGHT_DECAY = 0.0001 # L2 regularization to prevent overfitting
+DROPOUT_RATE = 0.2 # randomly zero 20% of neurons during training to prevent memorizing
+NUM_EPOCHS = 1000
 
 # learning rate scheduler
 # if the validation loss stops improving for LR_SCHEDULER_PATIENCE epochs
@@ -114,4 +116,5 @@ LR_SCHEDULER_FACTOR = 0.5
 # early stopping
 # if the validation loss hasnt improved for this many epochs in a row
 # we stop training to save time since the model isnt learning anymore
-EARLY_STOPPING_PATIENCE = 30
+# set to 50 so the model has more time to recover after LR drops
+EARLY_STOPPING_PATIENCE = 50

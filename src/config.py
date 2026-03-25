@@ -105,6 +105,20 @@ SHARPNESS_FACTOR = 2 # how much to adjust sharpness by
 NMS_CONFIDENCE_THRESHOLD = 0.5
 NMS_IOU_THRESHOLD = 0.5 # if two boxes overlap more than this we keep only the better one
 
+# focal loss
+# the standard cross entropy loss treats all negative tiles equally
+# but most negative tiles are easy (blue sky, green grass, empty walls)
+# focal loss down weights the loss contribution from tiles the model
+# is already confident about and amplifies the loss from confusing tiles
+# (other characters that look similar to waldo but arent)
+# the formula is: FL(pt) = -alpha * (1-pt)^gamma * log(pt)
+# gamma controls how much to down weight easy examples
+# gamma=0 is standard cross entropy, gamma=2 is the typical focal loss value
+# alpha balances the importance of positive vs negative classes
+# this is from the RetinaNet paper (Lin et al, ICCV 2017)
+FOCAL_LOSS_GAMMA = 2.0
+FOCAL_LOSS_ALPHA = 0.25
+
 # training
 # the VGG16 backbone is frozen so we only train the detection heads and 1x1 conv
 # we tried unfreezing the backbone but with only ~70 positive training tiles

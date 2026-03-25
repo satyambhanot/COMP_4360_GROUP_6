@@ -36,7 +36,8 @@ from config import (
     USE_PRETRAINED_SSD, PRETRAINED_SSD_INPUT_SIZE,
     LR_SCHEDULER_PATIENCE, LR_SCHEDULER_FACTOR,
     EARLY_STOPPING_PATIENCE,
-    WEIGHT_DECAY
+    WEIGHT_DECAY,
+    FOCAL_LOSS_GAMMA, FOCAL_LOSS_ALPHA
 )
 
 # check what hardware we have available
@@ -124,6 +125,24 @@ def encode_ground_truth(gt_box, anchor):
 
     # make sure the returned tensor is on the same device as the inputs
     return torch.stack([dx, dy, dw, dh])
+
+
+def focal_loss_weight(loss_tensor, gamma=FOCAL_LOSS_GAMMA):
+    # applies focal loss weighting to an already computed loss
+    # the idea: if the model is already confident about a prediction (low loss)
+    # we reduce its contribution to the total loss
+    # if the model is confused (high loss) we keep the full contribution
+    #
+    # this is a simplified version that works with torchvisions internal SSD loss
+    # instead of rewriting their loss function we just reweight the output
+    # the effect is similar: easy examples get down weighted, hard examples stay
+    #
+    # for the standard focal loss formula FL = -alpha * (1-pt)^gamma * log(pt)
+    # we approximate (1-pt)^gamma using the loss itself since loss = -log(pt)
+    # so pt = exp(-loss) and (1-pt)^gamma = (1 - exp(-loss))^gamma
+    pt = torch.exp(-loss_tensor)
+    focal_weight = (1.0 - pt) ** gamma
+    return (focal_weight * loss_tensor).mean()
 
 
 def format_targets(labels, bboxes, device):
@@ -230,11 +249,14 @@ def compute_loss(locs, cls_scores, anchors, labels, bboxes):
                     # torch.nn.functional.smooth_l1_loss is from pytorch
                     total_loc_loss += F.smooth_l1_loss(predicted_offsets, target_offsets)
 
-        # classification loss using cross entropy
-        # this is computed for all 1364 anchors on every tile
-        # cross entropy handles the softmax internally so we pass raw logits
-        # torch.nn.functional.cross_entropy is from pytorch
-        total_cls_loss += F.cross_entropy(img_cls, cls_targets)
+        # classification loss using focal cross entropy
+        # standard cross entropy treats every anchor equally but most anchors are
+        # easy background predictions. focal loss down weights those easy ones
+        # so the model focuses on the confusing anchors near waldo like characters
+        ce_loss = F.cross_entropy(img_cls, cls_targets, reduction='none')
+        pt = torch.exp(-ce_loss)
+        focal_weight = FOCAL_LOSS_ALPHA * (1.0 - pt) ** FOCAL_LOSS_GAMMA
+        total_cls_loss += (focal_weight * ce_loss).mean()
 
     # average the losses across the batch
     cls_loss = total_cls_loss / batch_size
@@ -271,9 +293,16 @@ def train_one_epoch(model, dataloader, optimizer, device):
             # torchvision handles anchor matching, encoding, and loss computation for us
             targets = format_targets(labels, bboxes, device)
             loss_dict = model(images, targets)
-            cls_loss = loss_dict["classification"].item()
+
+            # apply focal loss weighting to the classification loss
+            # this down weights the loss from tiles the model is already confident about
+            # (easy negatives like sky and grass) and amplifies the loss from
+            # confusing tiles (other characters that look like waldo)
+            # we leave the bbox regression loss alone since it only applies to positives
+            focal_cls_loss = focal_loss_weight(loss_dict["classification"])
+            cls_loss = focal_cls_loss.item()
             loc_loss = loss_dict["bbox_regression"].item()
-            loss = loss_dict["classification"] + loss_dict["bbox_regression"]
+            loss = focal_cls_loss + loss_dict["bbox_regression"]
         else:
             # our custom model returns raw predictions and we compute loss ourselves
             locs, cls_scores, anchors = model(images)
@@ -335,9 +364,10 @@ def validate(model, dataloader, device):
             if USE_PRETRAINED_SSD:
                 targets = format_targets(labels, bboxes, device)
                 loss_dict = model(images, targets)
-                cls_loss = loss_dict["classification"].item()
+                focal_cls = focal_loss_weight(loss_dict["classification"])
+                cls_loss = focal_cls.item()
                 loc_loss = loss_dict["bbox_regression"].item()
-                loss_val = loss_dict["classification"].item() + loss_dict["bbox_regression"].item()
+                loss_val = cls_loss + loc_loss
                 running_loss += loss_val
             else:
                 locs, cls_scores, anchors = model(images)

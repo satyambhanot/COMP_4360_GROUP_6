@@ -60,6 +60,8 @@
 import torch
 import torch.nn as nn
 from torchvision import models
+from torchvision.models.detection import ssd300_vgg16
+from torchvision.models.detection.ssd import SSDClassificationHead
 
 from pre_processing import preprocess_batch, ApplyHSVMask, ApplySobelEdgeDetection
 from ssd import ssd_block
@@ -67,7 +69,8 @@ from ConcatenateAnchors import concatenate_all_heads
 from config import (
     BACKBONE_LAYERS, BACKBONE_CHANNELS,
     NUM_CLASSES, NUM_ANCHORS, SSD_KERNEL_SIZE,
-    NUM_SSD_HEADS, BATCH_SIZE
+    NUM_SSD_HEADS, BATCH_SIZE,
+    USE_PRETRAINED_SSD, PRETRAINED_SSD_INPUT_SIZE
 )
 from data_pipeline import get_dataloader
 import torch.nn.functional as F
@@ -195,6 +198,108 @@ class WaldoDetector(nn.Module):
         # train.py uses these raw predictions to compute the loss
         # evaluate.py runs NMS on these to get the final filtered predictions
         return locs, cls_scores, anchors
+
+
+class WaldoDetectorPretrained(nn.Module):
+    # this model uses a full SSD300 VGG16 pretrained on COCO (330k images, 90 classes)
+    # the detection heads already know how to find objects from COCO training
+    # we just replace the classification head from 91 classes to 2 (waldo + background)
+    # and add our HSV + Sobel preprocessing as extra input channels
+    #
+    # the big advantage over our custom WaldoDetector is that the detection heads
+    # dont start from random weights, they already know how to match anchors to objects
+    # and predict bounding box offsets. they just need to learn what waldo looks like
+    #
+    # torchvision SSD has a different interface than our custom model:
+    #   training: takes (images_list, targets_list) and returns a loss dict
+    #   eval: takes (images_list) and returns detection dicts with boxes, scores, labels
+    # so train.py and evaluate.py need to handle both formats
+
+    def __init__(self, use_hsv=True, use_sobel=True):
+        super().__init__()
+
+        self.use_hsv = use_hsv
+        self.use_sobel = use_sobel
+        self.model_type = "pretrained_ssd" # so checkpoint loading knows which model this is
+
+        # figure out input channels for our preprocessing (same logic as WaldoDetector)
+        self.input_channels = 3
+        if use_hsv:
+            self.input_channels += 1
+        if use_sobel:
+            self.input_channels += 1
+
+        # 1x1 conv to merge our preprocessing channels back to 3 for the SSD backbone
+        if self.input_channels > 3:
+            self.channel_conv = nn.Conv2d(self.input_channels, 3, kernel_size=1)
+        else:
+            self.channel_conv = None
+
+        # load the full SSD300 VGG16 pretrained on COCO
+        # this gives us a complete object detector with backbone + detection heads + anchors + NMS
+        # torchvision.models.detection.ssd300_vgg16 is from pytorch
+        self.ssd = ssd300_vgg16(weights="DEFAULT")
+
+        # replace the classification head from 91 COCO classes to 2 (waldo + background)
+        # the box regression head stays the same (still predicts 4 offsets per anchor)
+        # we need to match the number of anchors per feature map level
+        num_anchors = self.ssd.anchor_generator.num_anchors_per_location()
+        in_channels = [cls.in_channels for cls in self.ssd.head.classification_head.module_list]
+        self.ssd.head.classification_head = SSDClassificationHead(in_channels, num_anchors, NUM_CLASSES)
+
+        # freeze the VGG16 backbone so it doesnt change during training
+        # only the detection heads (classification + regression) will be trained
+        # this is the same approach as our custom model but with a much stronger backbone
+        for param in self.ssd.backbone.parameters():
+            param.requires_grad = False
+
+    def forward(self, images, targets=None):
+        # images is a batched tensor [N, 3, 256, 256] from our dataloader
+
+        # step 1: apply our preprocessing (same as WaldoDetector)
+        if self.use_hsv and self.use_sobel:
+            x = preprocess_batch(images)
+        elif self.use_hsv and not self.use_sobel:
+            hsv_mask = ApplyHSVMask(images)
+            x = torch.cat([images, hsv_mask], dim=1)
+        elif not self.use_hsv and self.use_sobel:
+            sobel = ApplySobelEdgeDetection(images)
+            x = torch.cat([images, sobel], dim=1)
+        else:
+            x = images
+
+        # step 2: merge extra channels back to 3
+        if self.channel_conv is not None:
+            x = self.channel_conv(x)
+
+        # step 3: resize from 256x256 to 300x300 (what SSD300 expects)
+        x = F.interpolate(x, size=(PRETRAINED_SSD_INPUT_SIZE, PRETRAINED_SSD_INPUT_SIZE), mode="bilinear", align_corners=False)
+
+        # step 4: torchvision SSD expects a list of images, not a batched tensor
+        image_list = [x[i] for i in range(x.shape[0])]
+
+        # step 5: pass through the SSD
+        # during training: returns loss dict {"classification": ..., "bbox_regression": ...}
+        # during eval: returns list of detection dicts with "boxes", "scores", "labels"
+        if self.training and targets is not None:
+            return self.ssd(image_list, targets)
+        else:
+            return self.ssd(image_list)
+
+
+def create_model(use_hsv=True, use_sobel=True, use_pretrained_backbone=True, num_heads=NUM_SSD_HEADS):
+    # helper function that creates the right model based on the config flag
+    # this way train.py and evaluate.py dont need to know which model class to use
+    # they just call create_model() and get the right one
+
+    if USE_PRETRAINED_SSD:
+        model = WaldoDetectorPretrained(use_hsv=use_hsv, use_sobel=use_sobel)
+        model.model_type = "pretrained_ssd"
+    else:
+        model = WaldoDetector(use_hsv=use_hsv, use_sobel=use_sobel, use_pretrained=use_pretrained_backbone, num_heads=num_heads)
+        model.model_type = "custom_ssd"
+
+    return model
 
 
 if __name__ == "__main__":

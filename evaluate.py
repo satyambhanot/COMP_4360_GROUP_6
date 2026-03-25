@@ -22,12 +22,13 @@ import matplotlib.pyplot as plt
 from PIL import Image, ImageDraw
 from torchvision import transforms
 
-from model import WaldoDetector
+from model import WaldoDetector, WaldoDetectorPretrained, create_model
 from data_pipeline import get_dataloader
 from nms import apply_nms
 from config import (
     CHECKPOINTS_DIR, BATCH_SIZE, INPUT_SIZE,
-    IMAGENET_MEAN, IMAGENET_STD, RAW_IMAGES
+    IMAGENET_MEAN, IMAGENET_STD, RAW_IMAGES,
+    USE_PRETRAINED_SSD
 )
 
 # where we save all the output images and results
@@ -56,19 +57,28 @@ def load_model():
         print("you need to train the model first by running: python train.py")
         return None
 
-    # create the model with the same architecture it was trained with
-    model = WaldoDetector()
-    model = model.to(device)
-
-    # load the saved weights into the model
+    # load the checkpoint first to check which model type was used during training
     # map_location makes sure it works even if the checkpoint was saved on GPU
     # but we are loading on CPU or vice versa
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+
+    # check which model was used for training
+    # older checkpoints might not have model_type so we default to checking the config
+    model_type = checkpoint.get("model_type", "pretrained_ssd" if USE_PRETRAINED_SSD else "custom_ssd")
+
+    # create the right model based on what was trained
+    if model_type == "pretrained_ssd":
+        model = WaldoDetectorPretrained()
+    else:
+        model = WaldoDetector()
+
+    model = model.to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
 
     # put the model in eval mode
     # this is important because it changes how some layers behave
     model.eval()
+    model.model_type = model_type
 
     print(f"loaded checkpoint from epoch {checkpoint['epoch']} with val loss {checkpoint['val_loss']:.4f}")
     return model
@@ -137,29 +147,52 @@ def run_predictions(model, dataloader, device):
         for images, labels, bboxes in dataloader:
             images = images.to(device)
 
-            # run the tiles through the model
-            locs, cls_scores, anchors = model(images)
+            if hasattr(model, "model_type") and model.model_type == "pretrained_ssd":
+                # pretrained SSD returns detections directly in eval mode
+                # each detection is a dict with boxes, scores, labels already filtered by NMS
+                detections = model(images)
 
-            # run NMS to filter overlapping predictions
-            nms_results = apply_nms(locs, cls_scores, anchors)
+                for i in range(len(detections)):
+                    det = detections[i]
+                    label = labels[i].item()
 
-            # for each tile in the batch, check if NMS found any waldo boxes
-            for i in range(images.shape[0]):
-                boxes, scores = nms_results[i]
-                label = labels[i].item()
+                    # filter to only waldo predictions (label 1, not background)
+                    waldo_mask = det["labels"] == 1
+                    boxes = det["boxes"][waldo_mask]
+                    scores = det["scores"][waldo_mask]
 
-                # if NMS returned any boxes, the model thinks this tile has waldo
-                if boxes.shape[0] > 0:
-                    prediction = 1
-                    confidence = scores.max().item()
-                else:
-                    prediction = 0
-                    confidence = 0.0
+                    if boxes.shape[0] > 0:
+                        prediction = 1
+                        confidence = scores.max().item()
+                    else:
+                        prediction = 0
+                        confidence = 0.0
 
-                all_predictions.append(prediction)
-                all_labels.append(label)
-                all_confidences.append(confidence)
-                all_nms_results.append((boxes, scores))
+                    all_predictions.append(prediction)
+                    all_labels.append(label)
+                    all_confidences.append(confidence)
+                    all_nms_results.append((boxes.cpu(), scores.cpu()))
+
+            else:
+                # our custom model returns raw predictions, we run our own NMS
+                locs, cls_scores, anchors = model(images)
+                nms_results = apply_nms(locs, cls_scores, anchors)
+
+                for i in range(images.shape[0]):
+                    boxes, scores = nms_results[i]
+                    label = labels[i].item()
+
+                    if boxes.shape[0] > 0:
+                        prediction = 1
+                        confidence = scores.max().item()
+                    else:
+                        prediction = 0
+                        confidence = 0.0
+
+                    all_predictions.append(prediction)
+                    all_labels.append(label)
+                    all_confidences.append(confidence)
+                    all_nms_results.append((boxes, scores))
 
     return all_predictions, all_labels, all_confidences, all_nms_results
 
@@ -429,22 +462,37 @@ def run_demo(model, device, image_path=None):
         tile_tensors = tile_tensors.to(device)
 
         with torch.no_grad():
-            locs, cls_scores, anchors = model(tile_tensors)
-            nms_results = apply_nms(locs, cls_scores, anchors)
-
-        for i in range(len(batch_tiles)):
-            boxes, scores = nms_results[i]
-            if boxes.shape[0] > 0:
-                w_off, h_off = batch_coords[i]
-                # map tile coordinates back to the original image
-                # the boxes from NMS are relative to the tile
-                # we add the tiles position offset to get image level coordinates
-                adjusted_boxes = boxes.cpu().clone()
-                adjusted_boxes[:, 0] += w_off # x1
-                adjusted_boxes[:, 1] += h_off # y1
-                adjusted_boxes[:, 2] += w_off # x2
-                adjusted_boxes[:, 3] += h_off # y2
-                all_detections.append((adjusted_boxes, scores.cpu()))
+            if hasattr(model, "model_type") and model.model_type == "pretrained_ssd":
+                # pretrained SSD returns detections directly
+                detections = model(tile_tensors)
+                for i in range(len(batch_tiles)):
+                    det = detections[i]
+                    waldo_mask = det["labels"] == 1
+                    boxes = det["boxes"][waldo_mask]
+                    scores = det["scores"][waldo_mask]
+                    if boxes.shape[0] > 0:
+                        w_off, h_off = batch_coords[i]
+                        # boxes are in 300x300 space, scale back to tile size
+                        scale = INPUT_SIZE / 300.0
+                        adjusted_boxes = boxes.cpu().clone() * scale
+                        adjusted_boxes[:, 0] += w_off
+                        adjusted_boxes[:, 1] += h_off
+                        adjusted_boxes[:, 2] += w_off
+                        adjusted_boxes[:, 3] += h_off
+                        all_detections.append((adjusted_boxes, scores.cpu()))
+            else:
+                locs, cls_scores, anchors = model(tile_tensors)
+                nms_results = apply_nms(locs, cls_scores, anchors)
+                for i in range(len(batch_tiles)):
+                    boxes, scores = nms_results[i]
+                    if boxes.shape[0] > 0:
+                        w_off, h_off = batch_coords[i]
+                        adjusted_boxes = boxes.cpu().clone()
+                        adjusted_boxes[:, 0] += w_off
+                        adjusted_boxes[:, 1] += h_off
+                        adjusted_boxes[:, 2] += w_off
+                        adjusted_boxes[:, 3] += h_off
+                        all_detections.append((adjusted_boxes, scores.cpu()))
 
     # draw all detections on the original full image
     for boxes, scores in all_detections:

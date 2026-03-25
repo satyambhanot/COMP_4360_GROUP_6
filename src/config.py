@@ -16,6 +16,14 @@ CHECKPOINTS_DIR = os.path.join(PROJECT_ROOT, "checkpoints")
 # data pipeline
 # controls how we chop up images and divide them into train/val/test
 TILE_SIZES = [256] # we only use 256x256 tiles, the 64 and 128 sizes were never actually used anywhere
+
+# grid offsets for tiling
+# instead of always starting the tile grid at (0,0) we also start at half-tile offsets
+# this means waldo falls on different tile boundaries in each grid
+# a waldo that was split across two tiles in the (0,0) grid might be fully inside
+# one tile in the (128,0) grid. this gives us more diverse positive tiles
+# without any image distortion at all
+TILE_OFFSETS = [(0, 0), (128, 0), (0, 128), (128, 128)]
 OVERLAP_THRESHOLD = 0.5 # fraction of waldo that must be inside a tile to count as positive
 TRAIN_RATIO = 0.7
 VAL_RATIO = 0.15 # test ratio is whatever is left over (0.15)

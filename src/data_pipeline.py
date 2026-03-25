@@ -1,7 +1,8 @@
 # data_pipeline.py
 # this file handles everything related to getting our data ready for the model
-# it takes 19 raw wheres waldo images and their xml annotations,
-# chops them into smaller tiles at different sizes (64, 128, 256),
+# it takes our raw wheres waldo images and their xml annotations,
+# chops them into 256x256 tiles using multiple grid offsets,
+# runs the random crop augmentation for extra positive tiles,
 # figures out which tiles actually contain waldo,
 # splits everything into train/val/test sets,
 # and provides a pytorch dataset and dataloader so other files can easily grab batches
@@ -18,7 +19,7 @@ from torch.utils.data import WeightedRandomSampler
 from torchvision.transforms import functional as TF
 from config import (
     RAW_IMAGES, RAW_ANNOTATIONS, PROCESSED,
-    TILE_SIZES, OVERLAP_THRESHOLD,
+    TILE_SIZES, TILE_OFFSETS, OVERLAP_THRESHOLD,
     TRAIN_RATIO, VAL_RATIO, RANDOM_SEED,
     INPUT_SIZE, BATCH_SIZE,
     IMAGENET_MEAN, IMAGENET_STD,
@@ -62,7 +63,7 @@ def waldo_overlap(waldo_box, tile_box): # what fraction of waldo is inside this 
     return inter / waldo_area # fraction of waldo thats inside the tile
 
 
-def tile_image(image_id): # chop one image into tiles at all resolutions
+def tile_image(image_id): # chop one image into tiles at all resolutions and grid offsets
     img_path = os.path.join(RAW_IMAGES, f"{image_id}.jpg")
     xml_path = os.path.join(RAW_ANNOTATIONS, f"{image_id}.xml")
 
@@ -75,38 +76,48 @@ def tile_image(image_id): # chop one image into tiles at all resolutions
         tile_dir = os.path.join(PROCESSED, f"{tile_size}")
         os.makedirs(tile_dir, exist_ok=True)
 
-        # slide across the image with no overlap for now
-        for y in range(0, img_h - tile_size + 1, tile_size):
-            for x in range(0, img_w - tile_size + 1, tile_size):
-                tile_box = [x, y, x + tile_size, y + tile_size]
-                overlap = waldo_overlap(waldo_bbox, tile_box)
+        # tile with multiple grid offsets so waldo lands on different boundaries
+        # the (0,0) offset is the original grid, the others shift by half a tile
+        # this means a waldo that was split across two tiles in one grid
+        # might be fully inside a single tile in another grid
+        for ox, oy in TILE_OFFSETS:
+            # skip offsets that dont fit in the image
+            # no point starting at offset 128 if the image is only 300px wide
+            if ox >= img_w or oy >= img_h:
+                continue
 
-                has_waldo = 1 if overlap >= OVERLAP_THRESHOLD else 0
+            for y in range(oy, img_h - tile_size + 1, tile_size):
+                for x in range(ox, img_w - tile_size + 1, tile_size):
+                    tile_box = [x, y, x + tile_size, y + tile_size]
+                    overlap = waldo_overlap(waldo_bbox, tile_box)
 
-                # figure out waldo's position relative to this tile (if hes in it)
-                local_bbox = None
-                if has_waldo:
-                    local_bbox = [
-                        max(waldo_bbox[0] - x, 0), # clip to tile boundaries
-                        max(waldo_bbox[1] - y, 0),
-                        min(waldo_bbox[2] - x, tile_size),
-                        min(waldo_bbox[3] - y, tile_size)
-                    ]
+                    has_waldo = 1 if overlap >= OVERLAP_THRESHOLD else 0
 
-                # crop and save the tile
-                tile_img = img.crop(tile_box)
-                tile_name = f"img{image_id}_{tile_size}_{x}_{y}.jpg"
-                tile_img.save(os.path.join(tile_dir, tile_name))
+                    # figure out waldo's position relative to this tile (if hes in it)
+                    local_bbox = None
+                    if has_waldo:
+                        local_bbox = [
+                            max(waldo_bbox[0] - x, 0), # clip to tile boundaries
+                            max(waldo_bbox[1] - y, 0),
+                            min(waldo_bbox[2] - x, tile_size),
+                            min(waldo_bbox[3] - y, tile_size)
+                        ]
 
-                tiles_info.append({
-                    "image_id": image_id,
-                    "tile_size": tile_size,
-                    "file": tile_name,
-                    "x": x,
-                    "y": y,
-                    "has_waldo": has_waldo,
-                    "local_bbox": local_bbox # None if no waldo
-                })
+                    # crop and save the tile
+                    # include offset in the filename so tiles from different grids dont collide
+                    tile_img = img.crop(tile_box)
+                    tile_name = f"img{image_id}_{tile_size}_o{ox}_{oy}_{x}_{y}.jpg"
+                    tile_img.save(os.path.join(tile_dir, tile_name))
+
+                    tiles_info.append({
+                        "image_id": image_id,
+                        "tile_size": tile_size,
+                        "file": tile_name,
+                        "x": x,
+                        "y": y,
+                        "has_waldo": has_waldo,
+                        "local_bbox": local_bbox # None if no waldo
+                    })
 
     return tiles_info
 
@@ -153,10 +164,20 @@ def run_pipeline(): # the main function that does everything, tiles all images a
 
     all_tiles = [t for sublist in all_tiles for t in sublist] # flatten
 
+    # run the random crop augmentation to generate extra positive tiles
+    # this takes random 256x256 patches centered around waldo from the larger images
+    # each patch has waldo at a different position with different surrounding context
+    # we import it here so the augmented tiles get included in the same splits
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from augment_images import run_augmentation
+    augmented_tiles = run_augmentation()
+    all_tiles.extend(augmented_tiles)
+
     # print some stats
     positive = sum(1 for t in all_tiles if t["has_waldo"])
     negative = len(all_tiles) - positive
-    print(f"\ntotal tiles: {len(all_tiles)}")
+    print(f"\ntotal tiles (grid + augmented): {len(all_tiles)}")
     print(f"  positive (has waldo): {positive}")
     print(f"  negative: {negative}")
 

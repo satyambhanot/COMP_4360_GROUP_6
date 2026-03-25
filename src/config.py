@@ -91,9 +91,10 @@ SHARPNESS_FACTOR = 2 # how much to adjust sharpness by
 
 # nms (non maximum suppression)
 # these control how we filter the models predictions during evaluation
-# the pretrained SSD needs a lower threshold because it outputs lower confidence scores
-# at threshold 0.3 we found the best tradeoff between finding waldo and false alarms
-NMS_CONFIDENCE_THRESHOLD = 0.3 if USE_PRETRAINED_SSD else 0.5
+# 0.3 was letting literally everything through so we bumped it to 0.5
+# the model gives positive tiles avg 0.95 confidence so 0.5 is still very safe
+# at 0.5 we lose maybe 1 waldo tile but cut dozens of false positives
+NMS_CONFIDENCE_THRESHOLD = 0.5
 NMS_IOU_THRESHOLD = 0.5 # if two boxes overlap more than this we keep only the better one
 
 # training

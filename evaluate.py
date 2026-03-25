@@ -209,6 +209,59 @@ def compute_metrics(predictions, labels):
     }
 
 
+def analyze_thresholds(confidences, labels):
+    # tests different NMS confidence thresholds to find the best one
+    # a higher threshold means fewer false positives but might miss waldos
+    # a lower threshold catches more waldos but also more false alarms
+    # this helps us pick the right threshold and shows the tradeoff in the report
+
+    print("\nthreshold analysis (what happens at different confidence cutoffs):")
+    print(f"  {'threshold':>10}  {'precision':>10}  {'recall':>10}  {'f1':>10}  {'detected':>10}  {'false pos':>10}")
+
+    best_f1 = 0
+    best_threshold = 0.5
+
+    for threshold in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]:
+        preds = [1 if c >= threshold else 0 for c in confidences]
+        tp = sum(1 for p, l in zip(preds, labels) if p == 1 and l == 1)
+        fp = sum(1 for p, l in zip(preds, labels) if p == 1 and l == 0)
+        fn = sum(1 for p, l in zip(preds, labels) if p == 0 and l == 1)
+
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
+
+        print(f"  {threshold:>10.1f}  {precision:>10.4f}  {recall:>10.4f}  {f1:>10.4f}  {tp:>10}  {fp:>10}")
+
+        if f1 > best_f1:
+            best_f1 = f1
+            best_threshold = threshold
+
+    print(f"\n  best f1 score: {best_f1:.4f} at threshold {best_threshold}")
+    return best_threshold
+
+
+def save_results(metrics, confidences, labels):
+    # saves all the evaluation results to a json file
+    # this makes it easy to load the numbers into the report
+    # or compare against ablation study results later
+
+    results = {
+        "metrics": metrics,
+        "total_positive_tiles": sum(1 for l in labels if l == 1),
+        "total_negative_tiles": sum(1 for l in labels if l == 0),
+        "avg_confidence_positive": sum(c for c, l in zip(confidences, labels) if l == 1) / max(sum(1 for l in labels if l == 1), 1),
+        "avg_confidence_negative": sum(c for c, l in zip(confidences, labels) if l == 0) / max(sum(1 for l in labels if l == 0), 1),
+        "max_confidence_positive": max((c for c, l in zip(confidences, labels) if l == 1), default=0),
+        "max_confidence_negative": max((c for c, l in zip(confidences, labels) if l == 0), default=0),
+    }
+
+    results_path = os.path.join(RESULTS_DIR, "evaluation_results.json")
+    with open(results_path, "w") as f:
+        json.dump(results, f, indent=2)
+    print(f"saved evaluation results to {results_path}")
+
+
 def plot_training_curves():
     # loads the training history json and plots the loss curves
     # this shows whether the model was learning and when it started overfitting
@@ -423,6 +476,14 @@ if __name__ == "__main__":
 
     # compute and print metrics
     metrics = compute_metrics(predictions, labels)
+
+    # analyze different confidence thresholds to find the best one
+    print("\nanalyzing confidence thresholds...")
+    best_threshold = analyze_thresholds(confidences, labels)
+
+    # save all results to json for the report
+    print("\nsaving results to json...")
+    save_results(metrics, confidences, labels)
 
     # plot the confidence distribution
     print("\nplotting confidence distribution...")

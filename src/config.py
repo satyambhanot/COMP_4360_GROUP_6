@@ -51,6 +51,15 @@ NUM_ANCHORS = 4 # anchor boxes per spatial position in each SSD head
 NUM_SSD_HEADS = 5 # backbone gives 16x16, each head halves it: 16, 8, 4, 2, 1 thats 5 heads
 SSD_KERNEL_SIZE = 3
 
+# pretrained SSD option
+# when True we use a full SSD300 VGG16 pretrained on COCO (330k images, 90 classes)
+# the detection heads already know how to find objects so they just need to learn what waldo looks like
+# when False we use our custom WaldoDetector with MobileNetV2 backbone and SSD heads trained from scratch
+# both use our HSV + Sobel preprocessing which is our main contribution
+# we can compare both approaches in the ablation studies
+USE_PRETRAINED_SSD = True
+PRETRAINED_SSD_INPUT_SIZE = 300 # SSD300 expects 300x300 input, our tiles are 256x256 so we resize
+
 # data augmentation
 # we have a huge class imbalance problem (about 14000 negative tiles vs 56 positive)
 # if we dont do anything about it the model will just learn to always say "no waldo"

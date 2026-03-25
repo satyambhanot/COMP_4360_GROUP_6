@@ -396,8 +396,7 @@ if __name__ == "__main__":
         optimizer,
         mode="min", # we want to minimize val loss
         patience=LR_SCHEDULER_PATIENCE,
-        factor=LR_SCHEDULER_FACTOR,
-        verbose=False # we print the LR ourselves in the epoch summary
+        factor=LR_SCHEDULER_FACTOR
     )
 
     # keep track of the best validation loss so we know when to save

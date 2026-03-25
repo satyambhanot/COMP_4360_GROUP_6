@@ -15,6 +15,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from torch.utils.data import WeightedRandomSampler
+from torchvision.transforms import functional as TF
 from config import (
     RAW_IMAGES, RAW_ANNOTATIONS, PROCESSED,
     TILE_SIZES, OVERLAP_THRESHOLD,
@@ -22,7 +23,10 @@ from config import (
     INPUT_SIZE, BATCH_SIZE,
     IMAGENET_MEAN, IMAGENET_STD,
     AUGMENT_TRAINING, SAMPLING_BALANCE_FACTOR,
-    COLOR_JITTER_BRIGHTNESS, COLOR_JITTER_CONTRAST, COLOR_JITTER_SATURATION
+    COLOR_JITTER_BRIGHTNESS, COLOR_JITTER_CONTRAST, COLOR_JITTER_SATURATION,
+    FLIP_PROBABILITY, GRAYSCALE_PROBABILITY,
+    BLUR_PROBABILITY, BLUR_KERNEL_SIZE,
+    SHARPNESS_PROBABILITY, SHARPNESS_FACTOR
 )
 
 
@@ -193,11 +197,12 @@ class WaldoTileDataset(Dataset):
         self.tile_size = tile_size
         self.split = split # we need to know if we are training so we can apply augmentation
 
-        # the base transform that every tile goes through regardless of split
+        # the base transform for val/test tiles (no augmentation)
+        # resize + toTensor + normalize is all they get
         self.transform = transforms.Compose([
-            transforms.Resize((INPUT_SIZE, INPUT_SIZE)), # everything goes to 256x256 for the backbone
+            transforms.Resize((INPUT_SIZE, INPUT_SIZE)),
             transforms.ToTensor(),
-            transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD) # imagenet normalization
+            transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)
         ])
 
         # color jitter for positive training tiles only
@@ -211,6 +216,15 @@ class WaldoTileDataset(Dataset):
             saturation=COLOR_JITTER_SATURATION
         )
 
+        # additional augmentations for ALL training tiles (not just positive)
+        # these create more visual variety so the model generalizes better
+        # inspired by augmentation techniques used in the FindingWaldo project
+        # (github.com/utsavraj/FindingWaldo) which used 6 different augmentations
+        # we apply these with random probability so not every tile gets every augmentation
+        self.grayscale = transforms.RandomGrayscale(p=GRAYSCALE_PROBABILITY)
+        self.blur = transforms.GaussianBlur(kernel_size=BLUR_KERNEL_SIZE, sigma=(0.1, 1.0))
+        self.sharpness = transforms.RandomAdjustSharpness(sharpness_factor=SHARPNESS_FACTOR, p=SHARPNESS_PROBABILITY)
+
     def __len__(self):
         return len(self.tiles)
 
@@ -220,21 +234,60 @@ class WaldoTileDataset(Dataset):
         img_path = os.path.join(PROCESSED, str(self.tile_size), tile_info["file"])
         img = Image.open(img_path).convert("RGB")
 
-        # if this is a positive tile during training, apply color jitter
-        # this makes each waldo tile look slightly different every time
-        # helps the model learn the general pattern instead of memorizing specific tiles
-        if self.split == "train" and AUGMENT_TRAINING and tile_info["has_waldo"]:
-            img = self.color_jitter(img)
-
-        img_tensor = self.transform(img)
-
-        label = tile_info["has_waldo"] # 0 or 1
-
-        # bbox is [xmin, ymin, xmax, ymax] relative to tile, or [0,0,0,0] if no waldo
+        # get the bounding box (or zeros if no waldo)
         if tile_info["local_bbox"] is not None:
             bbox = torch.tensor(tile_info["local_bbox"], dtype=torch.float32)
         else:
             bbox = torch.zeros(4, dtype=torch.float32)
+
+        label = tile_info["has_waldo"] # 0 or 1
+
+        # for val and test we just resize, convert to tensor, and normalize
+        # no augmentation at all so evaluation is on clean untouched data
+        if self.split != "train" or not AUGMENT_TRAINING:
+            img_tensor = self.transform(img)
+            return img_tensor, label, bbox
+
+        # everything below only applies to training tiles
+        # resize first so all augmentations work on the same size image
+        img = img.resize((INPUT_SIZE, INPUT_SIZE))
+
+        # horizontal flip with 50% chance
+        # we do this manually instead of using transforms.RandomHorizontalFlip
+        # because we also need to flip the bounding box x coordinates
+        # waldo looks the same facing left or right so this is a safe augmentation
+        if random.random() < FLIP_PROBABILITY:
+            img = TF.hflip(img) # flip the image
+            if label == 1:
+                # flip the bbox: new_xmin = tile_width minus old_xmax
+                xmin, ymin, xmax, ymax = bbox[0].item(), bbox[1].item(), bbox[2].item(), bbox[3].item()
+                # scale bbox to INPUT_SIZE since we already resized
+                scale_x = INPUT_SIZE / self.tile_size
+                scale_y = INPUT_SIZE / self.tile_size
+                new_xmin = INPUT_SIZE - (xmax * scale_x)
+                new_xmax = INPUT_SIZE - (xmin * scale_x)
+                bbox = torch.tensor([new_xmin, ymin * scale_y, new_xmax, ymax * scale_y], dtype=torch.float32)
+
+        # color jitter on positive tiles only
+        # changes brightness, contrast, saturation randomly
+        if label == 1:
+            img = self.color_jitter(img)
+
+        # random grayscale with 10% chance on all training tiles
+        # forces the model to sometimes learn without color
+        img = self.grayscale(img)
+
+        # gaussian blur with 20% chance on all training tiles
+        # makes the model robust to slightly blurry images
+        if random.random() < BLUR_PROBABILITY:
+            img = self.blur(img)
+
+        # random sharpness adjustment on all training tiles
+        img = self.sharpness(img)
+
+        # convert to tensor and normalize with imagenet values
+        img_tensor = transforms.ToTensor()(img)
+        img_tensor = transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)(img_tensor)
 
         return img_tensor, label, bbox
 

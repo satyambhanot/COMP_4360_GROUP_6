@@ -21,6 +21,7 @@ COMP_4360_GROUP_6/
 ├── run.sh                        # runs the entire pipeline start to finish
 ├── train.py                      # entry point for training the model
 ├── evaluate.py                   # entry point for testing and visualization
+├── augment_images.py             # generates random crop tiles around waldo
 ├── evaluate_ablation.py          # ablation study plans (comments only for now)
 ├── test_confidence.py            # quick confidence check on test tiles
 │
@@ -87,16 +88,17 @@ Key settings:
 
 ### Step 2: Data Pipeline (src/data_pipeline.py)
 
-Takes the 258 raw images and their XML annotations and chops each image into 256x256 tiles. Checks which tiles contain Waldo by computing overlap with the bounding box annotation. If at least 50% of Waldo is inside a tile, that tile gets labeled as positive.
+Takes the 258 raw images and their XML annotations and chops each image into 256x256 tiles using 4 different grid offsets (0,0), (128,0), (0,128), (128,128). This means Waldo falls on different tile boundaries in each grid, giving us more diverse positive tiles. Also runs random crop augmentation (augment_images.py) to generate additional positive tiles with Waldo at random positions.
 
 Splits tiles into train/val/test sets by image id (70/15/15) so the model never sees tiles from the same image in both training and testing. This prevents data leaking where the model memorizes background patterns instead of learning what Waldo looks like.
 
 Also handles data augmentation for training:
-- Weighted random sampling so positive tiles show up more often (roughly 1 positive per 8 negatives in each batch)
+- Weighted random sampling so positive tiles show up more often (roughly 1 positive per 10 negatives in each batch)
 - Horizontal flip with bounding box adjustment
 - Color jitter on positive tiles only (brightness, contrast, saturation)
 - Gaussian blur (20% chance)
 - Random sharpness adjustment (20% chance)
+- Random crop augmentation: 15 random 256x256 patches per large image, each with Waldo at a different position plus a flipped version of each crop
 
 ### Step 3: Pre Processing (src/pre_processing.py)
 
@@ -141,6 +143,7 @@ Handles both model types:
 - SGD optimizer with momentum 0.9
 - Learning rate 0.001 (backbone frozen, only heads train)
 - Weight decay 0.0001 (L2 regularization)
+- Focal loss (gamma=2.0, alpha=0.25) to down-weight easy negatives
 - Torchvision SSD returns its own loss dict (classification + bbox regression)
 - Gradient clipping (max_norm=1.0)
 
@@ -157,7 +160,7 @@ Both models use:
 
 ### Step 9: Evaluation (evaluate.py)
 
-Loads the best checkpoint and runs on test tiles the model has never seen. Outputs:
+Loads the best checkpoint and runs on test tiles the model has never seen. Uses an HSV pre-filter to skip tiles with no red/white pixels (Waldo's colors) and test-time augmentation (horizontal flip) for better accuracy. Outputs:
 
 - **Metrics**: accuracy, precision, recall, F1 score, confusion matrix
 - **Threshold analysis**: tests confidence thresholds from 0.1 to 0.9, finds the best F1 threshold
@@ -177,7 +180,7 @@ We use 258 images total:
 - 102 images from the FindingWaldo dataset (originals)
 - 137 brightness and gamma variant images from FindingWaldo
 
-All annotations are in Pascal VOC XML format. The data pipeline generates roughly 1,800+ tiles at 256x256, of which about 69 contain Waldo (extreme class imbalance).
+All annotations are in Pascal VOC XML format. The data pipeline generates tiles at 256x256 using 4 grid offsets plus random crop augmentation. The augmentation significantly increases the number of positive tiles from ~69 (fixed grid only) to several hundred, which helps the model learn what Waldo specifically looks like.
 
 
 ## Models

@@ -71,7 +71,8 @@ from config import (
     NUM_CLASSES, NUM_ANCHORS, SSD_KERNEL_SIZE,
     NUM_SSD_HEADS, BATCH_SIZE,
     USE_PRETRAINED_SSD, PRETRAINED_SSD_INPUT_SIZE,
-    IMAGENET_MEAN, IMAGENET_STD
+    IMAGENET_MEAN, IMAGENET_STD,
+    DROPOUT_RATE
 )
 from data_pipeline import get_dataloader
 import torch.nn.functional as F
@@ -253,20 +254,31 @@ class WaldoDetectorPretrained(nn.Module):
         # setting it to 0.1 means only detections the model is at least 10% confident about survive
         self.ssd.score_thresh = 0.1
 
-        # freeze most of the VGG16 backbone but unfreeze the extra feature layers
-        # the main VGG layers (child 0) learn universal features that work for any task
-        # the extra feature layers (child 1) are more task specific and benefit from fine tuning
-        # on our waldo cartoon images which look different from COCO photos
-        for param in self.ssd.backbone.parameters():
-            param.requires_grad = False
+        # add dropout to the classification head to prevent overfitting
+        # the FindingWaldo repo used dropout with keep probability 0.8 (dropout rate 0.2)
+        # dropout randomly zeroes neurons during training which forces the model to learn
+        # redundant representations instead of memorizing specific patterns
+        # we add it after the classification head so it applies to the class predictions
+        self.dropout = nn.Dropout(p=DROPOUT_RATE)
 
-        # unfreeze the extra feature layers of the backbone
-        # these are the additional conv layers added on top of VGG16 for multi scale detection
-        # they are more adaptable than the core VGG layers
-        backbone_children = list(self.ssd.backbone.children())
-        if len(backbone_children) > 1:
-            for param in backbone_children[-1].parameters():
-                param.requires_grad = True
+        # unfreeze the ENTIRE backbone so it can adapt from COCO photos to waldo cartoons
+        # previously we froze the core VGG16 layers but the FindingWaldo repo trained everything
+        # the cartoon style of wheres waldo is very different from COCO photos
+        # the backbone needs to learn cartoon specific features
+        # we use a lower learning rate for the backbone (set in train.py) so it adapts gently
+        # while the detection heads learn faster with a higher rate
+
+    def get_param_groups(self):
+        # returns separate parameter groups for the backbone and detection heads
+        # train.py uses these to set different learning rates
+        # backbone gets a lower LR because its already pretrained and just needs gentle adaptation
+        # heads get a higher LR because the classification head was replaced with random weights
+        backbone_params = list(self.ssd.backbone.parameters())
+        head_params = list(self.ssd.head.parameters())
+        # include the 1x1 conv in the head group since its also learning from scratch
+        if self.channel_conv is not None:
+            head_params += list(self.channel_conv.parameters())
+        return backbone_params, head_params
 
     def forward(self, images, targets=None):
         # images is a batched tensor [N, 3, 256, 256] from our dataloader
@@ -292,6 +304,10 @@ class WaldoDetectorPretrained(nn.Module):
         # step 2: merge extra channels back to 3
         if self.channel_conv is not None:
             x = self.channel_conv(x)
+            # apply dropout after merging channels to regularize the preprocessed features
+            # during training this randomly drops 20% of the merged features
+            # forces the model to not over rely on any single preprocessing channel
+            x = self.dropout(x)
 
         # step 3: undo the ImageNet normalization from our dataloader
         # the torchvision SSD will apply its own normalization internally

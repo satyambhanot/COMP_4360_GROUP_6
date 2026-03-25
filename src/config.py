@@ -21,7 +21,7 @@ TRAIN_RATIO = 0.7
 VAL_RATIO = 0.15 # test ratio is whatever is left over (0.15)
 RANDOM_SEED = 42 # so splits are reproducible
 INPUT_SIZE = 256 # all tiles get resized to this before going into the backbone
-BATCH_SIZE = 24 if USE_PRETRAINED_SSD else 16 # larger batch for pretrained SSD gives more stable gradients
+BATCH_SIZE = 16
 
 # imagenet normalization
 # mobilenet was trained on imagenet so we normalize our images the same way
@@ -59,6 +59,8 @@ SSD_KERNEL_SIZE = 3
 # we can compare both approaches in the ablation studies
 USE_PRETRAINED_SSD = True
 PRETRAINED_SSD_INPUT_SIZE = 300 # SSD300 expects 300x300 input, our tiles are 256x256 so we resize
+if USE_PRETRAINED_SSD:
+    BATCH_SIZE = 24 # larger batch for pretrained SSD gives more stable gradients
 
 # data augmentation
 # we have a huge class imbalance problem (about 14000 negative tiles vs 56 positive)

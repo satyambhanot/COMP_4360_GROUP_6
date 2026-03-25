@@ -129,9 +129,9 @@ $PYTHON -c "
 import sys, os; sys.path.insert(0, 'src')
 import torch
 import torch.nn.functional as F
-from model import WaldoDetector
+from model import WaldoDetector, WaldoDetectorPretrained
 from data_pipeline import get_dataloader
-from config import CHECKPOINTS_DIR
+from config import CHECKPOINTS_DIR, USE_PRETRAINED_SSD
 
 if torch.cuda.is_available():
     device = torch.device('cuda')
@@ -139,10 +139,18 @@ elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
     device = torch.device('mps')
 else:
     device = torch.device('cpu')
-model = WaldoDetector().to(device)
-cp = torch.load(os.path.join(CHECKPOINTS_DIR, 'best_model.pth'), map_location=device)
+
+cp = torch.load(os.path.join(CHECKPOINTS_DIR, 'best_model.pth'), map_location=device, weights_only=False)
+model_type = cp.get('model_type', 'pretrained_ssd' if USE_PRETRAINED_SSD else 'custom_ssd')
+
+if model_type == 'pretrained_ssd':
+    model = WaldoDetectorPretrained().to(device)
+else:
+    model = WaldoDetector().to(device)
+
 model.load_state_dict(cp['model_state_dict'])
 model.eval()
+model.model_type = model_type
 
 # check training tiles (should have high confidence on positive tiles)
 loader = get_dataloader(split='train', tile_size=256, batch_size=32)
@@ -153,14 +161,27 @@ with torch.no_grad():
     for batch_idx, (images, labels, bboxes) in enumerate(loader):
         if batch_idx >= 5: break
         images = images.to(device)
-        locs, cls_scores, anchors = model(images)
-        probs = F.softmax(cls_scores, dim=2)
-        max_probs = probs[:, :, 1].max(dim=1).values
-        for i in range(len(labels)):
-            if labels[i].item() == 1:
-                pos_confs.append(max_probs[i].item())
-            else:
-                neg_confs.append(max_probs[i].item())
+
+        if model_type == 'pretrained_ssd':
+            detections = model(images)
+            for i in range(len(labels)):
+                det = detections[i]
+                waldo_mask = det['labels'] == 1
+                scores = det['scores'][waldo_mask]
+                conf = scores.max().item() if scores.shape[0] > 0 else 0.0
+                if labels[i].item() == 1:
+                    pos_confs.append(conf)
+                else:
+                    neg_confs.append(conf)
+        else:
+            locs, cls_scores, anchors = model(images)
+            probs = F.softmax(cls_scores, dim=2)
+            max_probs = probs[:, :, 1].max(dim=1).values
+            for i in range(len(labels)):
+                if labels[i].item() == 1:
+                    pos_confs.append(max_probs[i].item())
+                else:
+                    neg_confs.append(max_probs[i].item())
 
 avg_pos = sum(pos_confs) / len(pos_confs) if pos_confs else 0
 avg_neg = sum(neg_confs) / len(neg_confs) if neg_confs else 0
@@ -170,6 +191,7 @@ max_neg = max(neg_confs) if neg_confs else 0
 print(f'on training tiles (first 5 batches):')
 print(f'  positive tiles ({len(pos_confs)} tiles): avg confidence = {avg_pos:.4f}, max = {max_pos:.4f}')
 print(f'  negative tiles ({len(neg_confs)} tiles): avg confidence = {avg_neg:.4f}, max = {max_neg:.4f}')
+print(f'  separation ratio: {avg_pos / max(avg_neg, 0.0001):.1f}x')
 print(f'')
 
 if avg_pos > avg_neg * 2:
@@ -195,6 +217,43 @@ echo "========================================"
 echo "  Step 8: Full evaluation"
 echo "========================================"
 $PYTHON evaluate.py
+echo ""
+
+# step 9: quick summary of the run
+echo "========================================"
+echo "  Step 9: Run summary"
+echo "========================================"
+$PYTHON -c "
+import sys, os, json; sys.path.insert(0, 'src')
+from config import CHECKPOINTS_DIR, USE_PRETRAINED_SSD, NUM_EPOCHS
+
+# load results if they exist
+results_path = os.path.join('results', 'evaluation_results.json')
+if os.path.exists(results_path):
+    with open(results_path) as f:
+        results = json.load(f)
+    m = results['metrics']
+    print(f'model type: {\"pretrained SSD300\" if USE_PRETRAINED_SSD else \"custom WaldoDetector\"}')
+    print(f'epochs trained: {NUM_EPOCHS}')
+    print(f'')
+    print(f'test set results:')
+    print(f'  accuracy:  {m[\"accuracy\"]:.4f}')
+    print(f'  precision: {m[\"precision\"]:.4f}')
+    print(f'  recall:    {m[\"recall\"]:.4f}')
+    print(f'  f1 score:  {m[\"f1\"]:.4f}')
+    print(f'  true positives:  {m[\"tp\"]}')
+    print(f'  false positives: {m[\"fp\"]}')
+    print(f'  true negatives:  {m[\"tn\"]}')
+    print(f'  false negatives: {m[\"fn\"]}')
+    print(f'')
+    print(f'confidence stats:')
+    print(f'  avg positive tile: {results[\"avg_confidence_positive\"]:.4f}')
+    print(f'  avg negative tile: {results[\"avg_confidence_negative\"]:.4f}')
+    print(f'  max positive tile: {results[\"max_confidence_positive\"]:.4f}')
+    print(f'  max negative tile: {results[\"max_confidence_negative\"]:.4f}')
+else:
+    print('no evaluation results found')
+"
 echo ""
 
 echo "========================================"

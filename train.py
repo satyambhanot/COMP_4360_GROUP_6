@@ -281,7 +281,14 @@ def train_one_epoch(model, dataloader, optimizer, device):
         # backward pass: compute gradients
         optimizer.zero_grad() # reset gradients from the previous batch
         loss.backward() # compute new gradients based on the loss
-        optimizer.step() # update the model weights using the gradients
+
+        # clip gradients to prevent exploding updates when the loss is very high
+        # without this a single bad batch can make the weights jump wildly
+        # max_norm=1.0 is a standard value used in most fine tuning setups
+        # torch.nn.utils.clip_grad_norm_ is from pytorch
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
+        optimizer.step() # update the model weights using the clipped gradients
 
         running_loss += loss.item()
         running_cls_loss += cls_loss

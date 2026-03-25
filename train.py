@@ -33,7 +33,9 @@ from ConcatenateAnchors import generate_anchors
 from config import (
     LEARNING_RATE, NUM_EPOCHS, BATCH_SIZE,
     CHECKPOINTS_DIR, NUM_CLASSES, INPUT_SIZE,
-    USE_PRETRAINED_SSD, PRETRAINED_SSD_INPUT_SIZE
+    USE_PRETRAINED_SSD, PRETRAINED_SSD_INPUT_SIZE,
+    LR_SCHEDULER_PATIENCE, LR_SCHEDULER_FACTOR,
+    EARLY_STOPPING_PATIENCE
 )
 
 # check what hardware we have available
@@ -379,9 +381,22 @@ if __name__ == "__main__":
     print(f"  train: {len(train_loader.dataset)} tiles")
     print(f"  val: {len(val_loader.dataset)} tiles")
 
+    # learning rate scheduler
+    # if val loss stops improving for LR_SCHEDULER_PATIENCE epochs, cut the learning rate
+    # this helps the model converge when its stuck at a plateau instead of bouncing around
+    # torch.optim.lr_scheduler.ReduceLROnPlateau is a standard pytorch scheduler
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer,
+        mode="min", # we want to minimize val loss
+        patience=LR_SCHEDULER_PATIENCE,
+        factor=LR_SCHEDULER_FACTOR,
+        verbose=False # we print the LR ourselves in the epoch summary
+    )
+
     # keep track of the best validation loss so we know when to save
     best_val_loss = float("inf")
     best_epoch = 0
+    epochs_without_improvement = 0 # for early stopping
 
     # save loss history so evaluate.py can plot training curves later
     # we store every epochs losses in a list and save to json at the end
@@ -410,24 +425,28 @@ if __name__ == "__main__":
         history["train_loc"].append(train_loc)
         history["val_loc"].append(val_loc)
 
+        # tell the scheduler about the val loss so it can decide whether to reduce LR
+        scheduler.step(val_loss)
+        current_lr = optimizer.param_groups[0]["lr"]
+
         # check if this is the best model so far
         saved = ""
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             best_epoch = epoch + 1
+            epochs_without_improvement = 0 # reset early stopping counter
 
             # save the best model checkpoint
-            # we save both the model weights and the optimizer state
-            # so we can resume training later if needed
-            # torch.save is the standard pytorch way to save models
             torch.save({
                 "epoch": epoch + 1,
-                "model_type": model_type, # so evaluate.py knows which model class to load
+                "model_type": model_type,
                 "model_state_dict": model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
                 "val_loss": val_loss,
             }, os.path.join(CHECKPOINTS_DIR, "best_model.pth"))
             saved = " [saved best]"
+        else:
+            epochs_without_improvement += 1
 
         # always save the last model so we can resume from where we stopped
         torch.save({
@@ -438,11 +457,19 @@ if __name__ == "__main__":
             "val_loss": val_loss,
         }, os.path.join(CHECKPOINTS_DIR, "last_model.pth"))
 
-        # print a summary for this epoch
+        # print a summary for this epoch including the current learning rate
         print(f"epoch {epoch + 1}/{NUM_EPOCHS} ({epoch_time:.1f}s)"
               f"  train loss: {train_loss:.4f} (cls: {train_cls:.4f}, loc: {train_loc:.4f})"
               f"  val loss: {val_loss:.4f} (cls: {val_cls:.4f}, loc: {val_loc:.4f})"
+              f"  lr: {current_lr:.6f}"
               f"{saved}")
+
+        # early stopping: if val loss hasnt improved for too long, stop training
+        # no point continuing if the model has stopped learning
+        if epochs_without_improvement >= EARLY_STOPPING_PATIENCE:
+            print(f"\nearly stopping: val loss hasnt improved for {EARLY_STOPPING_PATIENCE} epochs")
+            print(f"best was {best_val_loss:.4f} at epoch {best_epoch}")
+            break
 
     # save the training history to a json file so evaluate.py can plot curves
     history_path = os.path.join(CHECKPOINTS_DIR, "training_history.json")

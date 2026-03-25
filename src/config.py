@@ -94,5 +94,8 @@ NMS_IOU_THRESHOLD = 0.5 # if two boxes overlap more than this we keep only the b
 
 # training
 # will be used by train.py
-LEARNING_RATE = 0.001
+# pretrained SSD needs a lower learning rate because its weights are already close to optimal
+# too high a learning rate would destroy the pretrained features
+# our custom model can use a higher rate since its heads start from random
+LEARNING_RATE = 0.0001 if USE_PRETRAINED_SSD else 0.001
 NUM_EPOCHS = 50

@@ -35,7 +35,8 @@ from config import (
     CHECKPOINTS_DIR, NUM_CLASSES, INPUT_SIZE,
     USE_PRETRAINED_SSD, PRETRAINED_SSD_INPUT_SIZE,
     LR_SCHEDULER_PATIENCE, LR_SCHEDULER_FACTOR,
-    EARLY_STOPPING_PATIENCE
+    EARLY_STOPPING_PATIENCE,
+    BACKBONE_LR, WEIGHT_DECAY
 )
 
 # check what hardware we have available
@@ -369,15 +370,23 @@ if __name__ == "__main__":
     print(f"model type: {model_type}")
     print(f"model created with {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable parameters")
 
-    # create the optimizer
-    # we use Adam because it adjusts the learning rate for each parameter automatically
-    # which usually works well without much tuning
-    # we only pass the parameters that require gradients (not the frozen backbone)
-    # torch.optim.Adam is a standard pytorch optimizer
-    optimizer = torch.optim.Adam(
-        filter(lambda p: p.requires_grad, model.parameters()),
-        lr=LEARNING_RATE
-    )
+    # create the optimizer with differential learning rates
+    # the backbone gets a lower LR because its pretrained and just needs gentle adaptation
+    # the detection heads get a higher LR because the classification head has random weights
+    # this is a common transfer learning technique
+    # we also add weight decay (L2 regularization) to prevent overfitting
+    if USE_PRETRAINED_SSD and hasattr(model, 'get_param_groups'):
+        backbone_params, head_params = model.get_param_groups()
+        optimizer = torch.optim.SGD([
+            {"params": backbone_params, "lr": BACKBONE_LR},
+            {"params": head_params, "lr": LEARNING_RATE}
+        ], momentum=0.9, weight_decay=WEIGHT_DECAY)
+        print(f"  backbone lr: {BACKBONE_LR}, head lr: {LEARNING_RATE}, weight_decay: {WEIGHT_DECAY}")
+    else:
+        optimizer = torch.optim.Adam(
+            filter(lambda p: p.requires_grad, model.parameters()),
+            lr=LEARNING_RATE
+        )
 
     # load the train and validation dataloaders
     # the train loader uses weighted sampling to handle class imbalance

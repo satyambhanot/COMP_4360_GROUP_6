@@ -38,7 +38,6 @@ import time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 import torch
-import torch.nn.functional as F
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -129,10 +128,11 @@ def train_variant(model, train_loader, val_loader, variant_name, num_epochs=ABLA
                 loss_dict = model(images, targets)
                 loss = loss_dict["classification"] + loss_dict["bbox_regression"]
             else:
-                from ConcatenateAnchors import concatenate_all_heads
+                # custom SSD returns raw predictions so we use the same loss
+                # function as train.py for a fair comparison
+                from train import compute_loss
                 locs, cls_scores, anchors = model(images)
-                # simplified loss for custom SSD
-                loss = F.cross_entropy(cls_scores.view(-1, 2), torch.zeros(cls_scores.shape[0] * cls_scores.shape[1], dtype=torch.long, device=device))
+                loss, _, _ = compute_loss(locs, cls_scores, anchors, labels, bboxes)
 
             optimizer.zero_grad()
             loss.backward()
@@ -172,8 +172,10 @@ def train_variant(model, train_loader, val_loader, variant_name, num_epochs=ABLA
                     loss_dict = model(images, targets)
                     loss_val = loss_dict["classification"].item() + loss_dict["bbox_regression"].item()
                 else:
+                    from train import compute_loss
                     locs, cls_scores, anchors = model(images)
-                    loss_val = F.cross_entropy(cls_scores.view(-1, 2), torch.zeros(cls_scores.shape[0] * cls_scores.shape[1], dtype=torch.long, device=device)).item()
+                    loss, _, _ = compute_loss(locs, cls_scores, anchors, labels, bboxes)
+                    loss_val = loss.item()
 
                 val_loss += loss_val
                 val_batches += 1

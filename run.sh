@@ -76,23 +76,30 @@ echo "========================================"
 $PYTHON -c "
 import sys; sys.path.insert(0, 'src')
 from model import create_model
-from config import USE_PRETRAINED_SSD
+from config import MODEL_TYPE
 model = create_model()
 total = sum(p.numel() for p in model.parameters())
 trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
 frozen = total - trainable
 print(f'model type: {model.model_type}')
-if USE_PRETRAINED_SSD:
+if MODEL_TYPE == 'retinanet':
+    print(f'  architecture: RetinaNet ResNet50 FPN v2 (pretrained on COCO)')
+    print(f'  preprocessing: HSV mask + Sobel edge detection on HSV')
+    print(f'  backbone: ResNet50 + FPN (frozen, pretrained on COCO)')
+    print(f'  detection heads: RetinaNet heads with built in focal loss')
+    print(f'  input size: 800x800 (larger view for more context)')
+elif MODEL_TYPE == 'pretrained_ssd':
     print(f'  architecture: SSD300 VGG16 (pretrained on COCO)')
     print(f'  preprocessing: HSV mask + Sobel edge detection on HSV')
     print(f'  backbone: VGG16 (frozen, pretrained on COCO)')
-    print(f'  detection heads: SSD heads (trainable, classification head replaced for waldo)')
-    print(f'  regularization: weight decay {0.0001}')
+    print(f'  detection heads: SSD heads (classification head replaced for waldo)')
+    print(f'  input size: 300x300')
 else:
     print(f'  architecture: Custom WaldoDetector')
     print(f'  preprocessing: HSV mask + Sobel edge detection on HSV')
     print(f'  backbone: MobileNetV2 (first 11 layers, frozen)')
     print(f'  detection heads: 5 custom SSD blocks')
+    print(f'  input size: 256x256')
 print(f'')
 print(f'parameters:')
 print(f'  total:     {total:,}')
@@ -140,9 +147,9 @@ $PYTHON -c "
 import sys, os; sys.path.insert(0, 'src')
 import torch
 import torch.nn.functional as F
-from model import WaldoDetector, WaldoDetectorPretrained
+from model import WaldoDetector, WaldoDetectorPretrained, WaldoDetectorRetinaNet
 from data_pipeline import get_dataloader
-from config import CHECKPOINTS_DIR, USE_PRETRAINED_SSD
+from config import CHECKPOINTS_DIR, MODEL_TYPE
 
 if torch.cuda.is_available():
     device = torch.device('cuda')
@@ -152,9 +159,11 @@ else:
     device = torch.device('cpu')
 
 cp = torch.load(os.path.join(CHECKPOINTS_DIR, 'best_model.pth'), map_location=device, weights_only=False)
-model_type = cp.get('model_type', 'pretrained_ssd' if USE_PRETRAINED_SSD else 'custom_ssd')
+model_type = cp.get('model_type', MODEL_TYPE)
 
-if model_type == 'pretrained_ssd':
+if model_type == 'retinanet':
+    model = WaldoDetectorRetinaNet().to(device)
+elif model_type == 'pretrained_ssd':
     model = WaldoDetectorPretrained().to(device)
 else:
     model = WaldoDetector().to(device)
@@ -173,7 +182,7 @@ with torch.no_grad():
         if batch_idx >= 5: break
         images = images.to(device)
 
-        if model_type == 'pretrained_ssd':
+        if model_type in ('pretrained_ssd', 'retinanet'):
             detections = model(images)
             for i in range(len(labels)):
                 det = detections[i]
@@ -236,7 +245,7 @@ echo "  Step 9: Run summary"
 echo "========================================"
 $PYTHON -c "
 import sys, os, json; sys.path.insert(0, 'src')
-from config import CHECKPOINTS_DIR, USE_PRETRAINED_SSD, NUM_EPOCHS
+from config import CHECKPOINTS_DIR, MODEL_TYPE, NUM_EPOCHS
 
 # load results if they exist
 results_path = os.path.join('results', 'evaluation_results.json')
@@ -244,7 +253,8 @@ if os.path.exists(results_path):
     with open(results_path) as f:
         results = json.load(f)
     m = results['metrics']
-    print(f'model type: {\"pretrained SSD300\" if USE_PRETRAINED_SSD else \"custom WaldoDetector\"}')
+    model_names = {'retinanet': 'RetinaNet ResNet50 FPN', 'pretrained_ssd': 'pretrained SSD300', 'custom_ssd': 'custom WaldoDetector'}
+    print(f'model type: {model_names.get(MODEL_TYPE, MODEL_TYPE)}')
     print(f'epochs trained: {NUM_EPOCHS}')
     print(f'')
     print(f'test set results:')

@@ -33,7 +33,8 @@ from ConcatenateAnchors import generate_anchors
 from config import (
     LEARNING_RATE, NUM_EPOCHS, BATCH_SIZE,
     CHECKPOINTS_DIR, NUM_CLASSES, INPUT_SIZE,
-    USE_PRETRAINED_SSD, PRETRAINED_SSD_INPUT_SIZE,
+    MODEL_TYPE,
+    PRETRAINED_SSD_INPUT_SIZE, RETINANET_INPUT_SIZE,
     LR_SCHEDULER_PATIENCE, LR_SCHEDULER_FACTOR,
     EARLY_STOPPING_PATIENCE,
     WEIGHT_DECAY,
@@ -146,19 +147,21 @@ def focal_loss_weight(loss_tensor, gamma=FOCAL_LOSS_GAMMA):
 
 
 def format_targets(labels, bboxes, device):
-    # converts our dataloader output into the format torchvision SSD expects
-    # torchvision wants a list of dicts, one per image in the batch
-    # each dict has:
+    # converts our dataloader output into the format torchvision detection models expect
+    # both SSD and RetinaNet use the same dict format:
     #   "boxes": tensor of shape [num_objects, 4] in [xmin, ymin, xmax, ymax] format
     #   "labels": tensor of shape [num_objects] with class labels (1 for waldo)
     #
     # for positive tiles: one box and one label
     # for negative tiles: empty tensors (no objects)
     #
-    # we also need to scale the bboxes from our tile size (256) to what SSD300 expects (300)
-    # because the model resizes images to 300x300 internally
+    # we scale the bboxes from our tile size (256) to whatever the model expects
+    # SSD wants 300x300, RetinaNet wants 800x800
 
-    scale = PRETRAINED_SSD_INPUT_SIZE / INPUT_SIZE
+    if MODEL_TYPE == "retinanet":
+        scale = RETINANET_INPUT_SIZE / INPUT_SIZE
+    else:
+        scale = PRETRAINED_SSD_INPUT_SIZE / INPUT_SIZE
     targets = []
 
     for i in range(len(labels)):
@@ -287,22 +290,25 @@ def train_one_epoch(model, dataloader, optimizer, device):
         labels = labels.to(device)
         bboxes = bboxes.to(device)
 
-        if USE_PRETRAINED_SSD:
-            # pretrained SSD has a different training interface
-            # it takes images + targets and computes loss internally
-            # torchvision handles anchor matching, encoding, and loss computation for us
+        if MODEL_TYPE in ("pretrained_ssd", "retinanet"):
+            # torchvision models (SSD and RetinaNet) share the same training interface
+            # they take images + targets and compute loss internally
+            # returns a dict with "classification" and "bbox_regression" losses
             targets = format_targets(labels, bboxes, device)
             loss_dict = model(images, targets)
 
-            # apply focal loss weighting to the classification loss
-            # this down weights the loss from tiles the model is already confident about
-            # (easy negatives like sky and grass) and amplifies the loss from
-            # confusing tiles (other characters that look like waldo)
-            # we leave the bbox regression loss alone since it only applies to positives
-            focal_cls_loss = focal_loss_weight(loss_dict["classification"])
-            cls_loss = focal_cls_loss.item()
-            loc_loss = loss_dict["bbox_regression"].item()
-            loss = focal_cls_loss + loss_dict["bbox_regression"]
+            # for pretrained SSD we manually apply focal loss weighting
+            # RetinaNet already has focal loss built in so we use its loss directly
+            if MODEL_TYPE == "pretrained_ssd":
+                focal_cls_loss = focal_loss_weight(loss_dict["classification"])
+                cls_loss = focal_cls_loss.item()
+                loc_loss = loss_dict["bbox_regression"].item()
+                loss = focal_cls_loss + loss_dict["bbox_regression"]
+            else:
+                # retinanet: focal loss is already applied internally
+                cls_loss = loss_dict["classification"].item()
+                loc_loss = loss_dict["bbox_regression"].item()
+                loss = loss_dict["classification"] + loss_dict["bbox_regression"]
         else:
             # our custom model returns raw predictions and we compute loss ourselves
             locs, cls_scores, anchors = model(images)
@@ -349,11 +355,11 @@ def validate(model, dataloader, device):
     # torch.no_grad tells pytorch not to track gradients
     # this saves memory and speeds things up since we dont need gradients for validation
     #
-    # for the pretrained SSD we need to temporarily put it back in train mode
-    # to compute the loss because in eval mode it returns detections instead of losses
+    # for torchvision models (SSD and RetinaNet) we need train mode to get losses
+    # because in eval mode they return detections instead of losses
     # we still use no_grad so no weights get updated
-    if USE_PRETRAINED_SSD:
-        model.train() # need train mode to get losses from torchvision SSD
+    if MODEL_TYPE in ("pretrained_ssd", "retinanet"):
+        model.train()
 
     with torch.no_grad():
         for images, labels, bboxes in dataloader:
@@ -361,11 +367,14 @@ def validate(model, dataloader, device):
             labels = labels.to(device)
             bboxes = bboxes.to(device)
 
-            if USE_PRETRAINED_SSD:
+            if MODEL_TYPE in ("pretrained_ssd", "retinanet"):
                 targets = format_targets(labels, bboxes, device)
                 loss_dict = model(images, targets)
-                focal_cls = focal_loss_weight(loss_dict["classification"])
-                cls_loss = focal_cls.item()
+                if MODEL_TYPE == "pretrained_ssd":
+                    focal_cls = focal_loss_weight(loss_dict["classification"])
+                    cls_loss = focal_cls.item()
+                else:
+                    cls_loss = loss_dict["classification"].item()
                 loc_loss = loss_dict["bbox_regression"].item()
                 loss_val = cls_loss + loc_loss
                 running_loss += loss_val
@@ -401,12 +410,11 @@ if __name__ == "__main__":
     print(f"model created with {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable parameters")
 
     # create the optimizer
-    # for pretrained SSD the backbone is frozen so we only train the detection heads
-    # and the 1x1 channel conv that merges our preprocessing channels
-    # we use SGD with momentum which works well for fine tuning pretrained models
-    # weight decay (L2 regularization) helps prevent the heads from overfitting
-    # to our small dataset of ~70 positive tiles
-    if USE_PRETRAINED_SSD and hasattr(model, 'get_param_groups'):
+    # for pretrained models (SSD and RetinaNet) the backbone is frozen
+    # so we only train the detection heads and the 1x1 preprocessing conv
+    # SGD with momentum works well for fine tuning pretrained models
+    # weight decay (L2 regularization) prevents the heads from overfitting
+    if MODEL_TYPE in ("pretrained_ssd", "retinanet") and hasattr(model, 'get_param_groups'):
         head_params = model.get_param_groups()
         optimizer = torch.optim.SGD(
             head_params, lr=LEARNING_RATE,

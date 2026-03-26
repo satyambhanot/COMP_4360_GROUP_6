@@ -14,9 +14,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 import torch
 import torch.nn.functional as F
-from model import WaldoDetector, WaldoDetectorPretrained
+from model import WaldoDetector, WaldoDetectorPretrained, WaldoDetectorRetinaNet
 from data_pipeline import get_dataloader
-from config import CHECKPOINTS_DIR, USE_PRETRAINED_SSD, NMS_CONFIDENCE_THRESHOLD
+from config import CHECKPOINTS_DIR, MODEL_TYPE, NMS_CONFIDENCE_THRESHOLD
 
 # supports nvidia gpu (cuda), apple silicon gpu (mps), or cpu
 if torch.cuda.is_available():
@@ -34,9 +34,11 @@ if not os.path.exists(checkpoint_path):
     exit()
 
 checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
-model_type = checkpoint.get("model_type", "pretrained_ssd" if USE_PRETRAINED_SSD else "custom_ssd")
+model_type = checkpoint.get("model_type", MODEL_TYPE)
 
-if model_type == "pretrained_ssd":
+if model_type == "retinanet":
+    model = WaldoDetectorRetinaNet().to(device)
+elif model_type == "pretrained_ssd":
     model = WaldoDetectorPretrained().to(device)
 else:
     model = WaldoDetector().to(device)
@@ -59,7 +61,7 @@ with torch.no_grad():
     for images, labels, bboxes in loader:
         images = images.to(device)
 
-        if model_type == "pretrained_ssd":
+        if model_type in ("pretrained_ssd", "retinanet"):
             # pretrained SSD returns detections with scores in eval mode
             detections = model(images)
             for i in range(len(labels)):

@@ -23,13 +23,13 @@ import matplotlib.pyplot as plt
 from PIL import Image, ImageDraw
 from torchvision import transforms
 
-from model import WaldoDetector, WaldoDetectorPretrained, create_model
+from model import WaldoDetector, WaldoDetectorPretrained, WaldoDetectorRetinaNet, create_model
 from data_pipeline import get_dataloader
 from nms import apply_nms
 from config import (
     CHECKPOINTS_DIR, BATCH_SIZE, INPUT_SIZE,
     IMAGENET_MEAN, IMAGENET_STD, RAW_IMAGES,
-    USE_PRETRAINED_SSD, NMS_CONFIDENCE_THRESHOLD,
+    MODEL_TYPE, NMS_CONFIDENCE_THRESHOLD,
     HSV_FILTER_THRESHOLD, USE_TTA
 )
 from pre_processing import ApplyHSVMask
@@ -66,11 +66,13 @@ def load_model():
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
 
     # check which model was used for training
-    # older checkpoints might not have model_type so we default to checking the config
-    model_type = checkpoint.get("model_type", "pretrained_ssd" if USE_PRETRAINED_SSD else "custom_ssd")
+    # older checkpoints might not have model_type so we default to the config
+    model_type = checkpoint.get("model_type", MODEL_TYPE)
 
     # create the right model based on what was trained
-    if model_type == "pretrained_ssd":
+    if model_type == "retinanet":
+        model = WaldoDetectorRetinaNet()
+    elif model_type == "pretrained_ssd":
         model = WaldoDetectorPretrained()
     else:
         model = WaldoDetector()
@@ -191,7 +193,7 @@ def run_predictions(model, dataloader, device):
             flipped_confs = {}
             if USE_TTA:
                 flipped_images = torch.flip(filtered_images, dims=[3]) # flip horizontally
-                if hasattr(model, "model_type") and model.model_type == "pretrained_ssd":
+                if hasattr(model, "model_type") and model.model_type in ("pretrained_ssd", "retinanet"):
                     flip_dets = model(flipped_images)
                     for j in range(len(flip_dets)):
                         det = flip_dets[j]
@@ -205,7 +207,7 @@ def run_predictions(model, dataloader, device):
                         _, scores = flip_nms[j]
                         flipped_confs[j] = scores.max().item() if scores.shape[0] > 0 else 0.0
 
-            if hasattr(model, "model_type") and model.model_type == "pretrained_ssd":
+            if hasattr(model, "model_type") and model.model_type in ("pretrained_ssd", "retinanet"):
                 # pretrained SSD returns detections directly in eval mode
                 # only run on filtered tiles to save inference time
                 detections = model(filtered_images)
@@ -816,7 +818,7 @@ def visualize_samples(model, dataloader, device, num_samples=5):
             images = images.to(device)
 
             # get detections based on model type
-            if hasattr(model, "model_type") and model.model_type == "pretrained_ssd":
+            if hasattr(model, "model_type") and model.model_type in ("pretrained_ssd", "retinanet"):
                 detections = model(images)
                 tile_results = []
                 for det in detections:
@@ -904,7 +906,7 @@ def run_demo(model, device, image_path=None):
         tile_tensors = tile_tensors.to(device)
 
         with torch.no_grad():
-            if hasattr(model, "model_type") and model.model_type == "pretrained_ssd":
+            if hasattr(model, "model_type") and model.model_type in ("pretrained_ssd", "retinanet"):
                 # pretrained SSD returns detections directly
                 detections = model(tile_tensors)
                 for i in range(len(batch_tiles)):
@@ -914,8 +916,11 @@ def run_demo(model, device, image_path=None):
                     scores = det["scores"][waldo_mask]
                     if boxes.shape[0] > 0:
                         w_off, h_off = batch_coords[i]
-                        # boxes are in 300x300 space, scale back to tile size
-                        scale = INPUT_SIZE / 300.0
+                        # boxes are in model input space, scale back to tile size
+                        # SSD uses 300x300, RetinaNet uses 800x800
+                        from config import RETINANET_INPUT_SIZE, PRETRAINED_SSD_INPUT_SIZE
+                        model_input = RETINANET_INPUT_SIZE if model.model_type == "retinanet" else 300.0
+                        scale = INPUT_SIZE / model_input
                         adjusted_boxes = boxes.cpu().clone() * scale
                         adjusted_boxes[:, 0] += w_off
                         adjusted_boxes[:, 1] += h_off

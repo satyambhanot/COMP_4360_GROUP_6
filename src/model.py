@@ -59,8 +59,9 @@
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torchvision import models
-from torchvision.models.detection import ssd300_vgg16
+from torchvision.models.detection import ssd300_vgg16, retinanet_resnet50_fpn_v2
 from torchvision.models.detection.ssd import SSDClassificationHead
 
 from pre_processing import preprocess_batch, ApplyHSVMask, ApplySobelEdgeDetection
@@ -70,11 +71,11 @@ from config import (
     BACKBONE_LAYERS, BACKBONE_CHANNELS,
     NUM_CLASSES, NUM_ANCHORS, SSD_KERNEL_SIZE,
     NUM_SSD_HEADS, BATCH_SIZE,
-    USE_PRETRAINED_SSD, PRETRAINED_SSD_INPUT_SIZE,
+    MODEL_TYPE,
+    PRETRAINED_SSD_INPUT_SIZE, RETINANET_INPUT_SIZE,
     IMAGENET_MEAN, IMAGENET_STD
 )
 from data_pipeline import get_dataloader
-import torch.nn.functional as F
 
 
 class WaldoDetector(nn.Module):
@@ -332,12 +333,144 @@ class WaldoDetectorPretrained(nn.Module):
             return self.ssd(image_list)
 
 
+class WaldoDetectorRetinaNet(nn.Module):
+    # RetinaNet with ResNet50 backbone and Feature Pyramid Network (FPN)
+    # this is the natural evolution of SSD in the one stage detector family
+    # the paper that introduced it (Lin et al, Focal Loss for Dense Object Detection,
+    # ICCV 2017) literally invented focal loss to solve the class imbalance problem
+    # which is exactly what we struggle with in wheres waldo
+    #
+    # key advantages over SSD300:
+    #   1. Feature Pyramid Network: detects objects at multiple scales by combining
+    #      features from different backbone layers. SSD only uses features from
+    #      specific layers which means it can miss objects at certain sizes
+    #   2. larger input: we feed 800x800 instead of SSD's 300x300
+    #      more pixels means more context around waldo, which helps the model
+    #      tell him apart from other characters in the cluttered scenes
+    #   3. ResNet50 backbone: deeper and more powerful than VGG16
+    #      better at extracting the fine details like waldos stripe pattern
+    #   4. focal loss built in: the architecture was designed from the ground up
+    #      to handle class imbalance. we dont need to manually add focal loss
+    #      like we did for the pretrained SSD
+    #
+    # torchvision interface is the same as SSD:
+    #   training: model(images, targets) returns loss dict
+    #   eval: model(images) returns list of detection dicts
+
+    def __init__(self, use_hsv=True, use_sobel=True):
+        super().__init__()
+
+        self.use_hsv = use_hsv
+        self.use_sobel = use_sobel
+        self.model_type = "retinanet"
+
+        # figure out how many input channels we have after preprocessing
+        self.input_channels = 3
+        if use_hsv:
+            self.input_channels += 1
+        if use_sobel:
+            self.input_channels += 1
+
+        # 1x1 conv to merge our preprocessing channels back to 3 for the backbone
+        # same approach as the pretrained SSD model
+        if self.input_channels > 3:
+            self.channel_conv = nn.Conv2d(self.input_channels, 3, kernel_size=1)
+        else:
+            self.channel_conv = None
+
+        # load RetinaNet with ResNet50 FPN pretrained on COCO
+        # retinanet_resnet50_fpn_v2 is the improved version with better defaults
+        self.detector = retinanet_resnet50_fpn_v2(weights="DEFAULT")
+
+        # replace the classification head from 91 COCO classes to 2 (waldo + background)
+        # RetinaNet uses a different head structure than SSD
+        # we need to find the number of anchors per location and the in_channels
+        num_anchors = self.detector.head.classification_head.num_anchors
+        in_channels = self.detector.head.classification_head.conv[0][0].in_channels
+
+        # replace the classification head with one that predicts 2 classes
+        # we rebuild it using the same architecture but with NUM_CLASSES outputs
+        self.detector.head.classification_head.num_classes = NUM_CLASSES
+        cls_logits = torch.nn.Conv2d(in_channels, num_anchors * NUM_CLASSES, kernel_size=3, stride=1, padding=1)
+        torch.nn.init.normal_(cls_logits.weight, std=0.01)
+        torch.nn.init.constant_(cls_logits.bias, -4.0) # bias init from RetinaNet paper
+        self.detector.head.classification_head.cls_logits = cls_logits
+
+        # set a reasonable score threshold for detections
+        # too low and we get flooded with false positives
+        # too high and we miss waldos
+        self.detector.score_thresh = 0.3
+
+        # freeze the ResNet50 backbone
+        # same reason as SSD: with limited training data the backbone overfits
+        # if we let it update. the COCO features are already good at extracting
+        # edges, textures, and shapes which is what we need
+        for param in self.detector.backbone.parameters():
+            param.requires_grad = False
+
+    def get_param_groups(self):
+        # returns trainable params only (heads + 1x1 conv, backbone is frozen)
+        head_params = list(self.detector.head.parameters())
+        if self.channel_conv is not None:
+            head_params += list(self.channel_conv.parameters())
+        return head_params
+
+    def forward(self, images, targets=None):
+        # same preprocessing flow as the pretrained SSD
+        # add HSV and Sobel channels, merge back to 3, undo normalization,
+        # scale to 0-255, resize to the models expected input size
+
+        # step 1: apply our preprocessing
+        if self.use_hsv and self.use_sobel:
+            x = preprocess_batch(images)
+        elif self.use_hsv and not self.use_sobel:
+            hsv_mask = ApplyHSVMask(images)
+            x = torch.cat([images, hsv_mask], dim=1)
+        elif not self.use_hsv and self.use_sobel:
+            sobel = ApplySobelEdgeDetection(images)
+            x = torch.cat([images, sobel], dim=1)
+        else:
+            x = images
+
+        # step 2: merge extra channels back to 3
+        if self.channel_conv is not None:
+            x = self.channel_conv(x)
+
+        # step 3: undo ImageNet normalization from our dataloader
+        # torchvision RetinaNet has its own internal normalization
+        mean = torch.tensor(IMAGENET_MEAN).view(1, 3, 1, 1).to(x.device)
+        std = torch.tensor(IMAGENET_STD).view(1, 3, 1, 1).to(x.device)
+        x = (x * std + mean).clamp(0, 1)
+
+        # step 4: scale to 0-255 range (torchvision expects this)
+        x = x * 255.0
+
+        # step 5: resize to RetinaNet's input size (800x800)
+        # this is the big advantage over SSD300: we see 7x more pixels
+        # which means more context around waldo to help identify him
+        x = F.interpolate(x, size=(RETINANET_INPUT_SIZE, RETINANET_INPUT_SIZE),
+                          mode="bilinear", align_corners=False)
+
+        # step 6: convert to image list format that torchvision expects
+        image_list = [x[i] for i in range(x.shape[0])]
+
+        # step 7: pass through RetinaNet
+        # same interface as SSD: training returns loss dict, eval returns detections
+        if self.training and targets is not None:
+            return self.detector(image_list, targets)
+        else:
+            return self.detector(image_list)
+
+
 def create_model(use_hsv=True, use_sobel=True, use_pretrained_backbone=True, num_heads=NUM_SSD_HEADS):
-    # helper function that creates the right model based on the config flag
+    # helper function that creates the right model based on MODEL_TYPE config
     # this way train.py and evaluate.py dont need to know which model class to use
     # they just call create_model() and get the right one
 
-    if USE_PRETRAINED_SSD:
+    if MODEL_TYPE == "retinanet":
+        model = WaldoDetectorRetinaNet(use_hsv=use_hsv, use_sobel=use_sobel)
+        model.model_type = "retinanet"
+    elif MODEL_TYPE == "pretrained_ssd":
         model = WaldoDetectorPretrained(use_hsv=use_hsv, use_sobel=use_sobel)
         model.model_type = "pretrained_ssd"
     else:

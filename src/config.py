@@ -59,16 +59,46 @@ NUM_ANCHORS = 4 # anchor boxes per spatial position in each SSD head
 NUM_SSD_HEADS = 5 # backbone gives 16x16, each head halves it: 16, 8, 4, 2, 1 thats 5 heads
 SSD_KERNEL_SIZE = 3
 
-# pretrained SSD option
-# when True we use a full SSD300 VGG16 pretrained on COCO (330k images, 90 classes)
-# the detection heads already know how to find objects so they just need to learn what waldo looks like
-# when False we use our custom WaldoDetector with MobileNetV2 backbone and SSD heads trained from scratch
-# both use our HSV + Sobel preprocessing which is our main contribution
-# we can compare both approaches in the ablation studies
-USE_PRETRAINED_SSD = True
-PRETRAINED_SSD_INPUT_SIZE = 300 # SSD300 expects 300x300 input, our tiles are 256x256 so we resize
-if USE_PRETRAINED_SSD:
-    BATCH_SIZE = 24 # larger batch for pretrained SSD gives more stable gradients
+# model selection
+# we tried three different architectures during this project:
+#
+#   "custom_ssd": our own SSD with MobileNetV2 backbone and 5 custom detection heads
+#     this was our first attempt based on the Lamb & Chuah strawberry paper
+#     it struggled because the heads trained from scratch with too little data
+#
+#   "pretrained_ssd": SSD300 VGG16 pretrained on COCO from torchvision
+#     better than custom because the detection heads already knew how to find objects
+#     but limited to 300x300 input which means tiny tiles with no context
+#
+#   "retinanet": RetinaNet with ResNet50 + FPN pretrained on COCO from torchvision
+#     our best performing model. handles larger input (800x800) so the model
+#     sees more context around waldo. feature pyramid network detects at multiple
+#     scales. focal loss is built into the architecture (from the RetinaNet paper)
+#     this is the natural evolution of SSD in the one stage detector lineage
+#
+# change MODEL_TYPE to switch between them
+# all three use our HSV + Sobel preprocessing which is our main contribution
+MODEL_TYPE = "retinanet" # "custom_ssd", "pretrained_ssd", or "retinanet"
+
+# backward compatible flag so existing code that checks USE_PRETRAINED_SSD still works
+# during the migration to MODEL_TYPE we keep this around
+# eventually all code should check MODEL_TYPE directly
+USE_PRETRAINED_SSD = MODEL_TYPE == "pretrained_ssd"
+
+# model specific input sizes
+# SSD300 expects exactly 300x300, thats baked into its architecture
+# RetinaNet can take any size but 800x800 gives a good balance of detail and speed
+# our tiles are 256x256 so both models resize internally
+PRETRAINED_SSD_INPUT_SIZE = 300
+RETINANET_INPUT_SIZE = 800
+
+# batch size depends on model because bigger models use more GPU memory
+# retinanet with 800x800 input needs smaller batches than SSD with 300x300
+if MODEL_TYPE == "retinanet":
+    BATCH_SIZE = 8 # retinanet at 800x800 uses more memory per image
+elif MODEL_TYPE == "pretrained_ssd":
+    BATCH_SIZE = 24 # SSD300 is lightweight
+# else custom_ssd uses the default BATCH_SIZE = 16 from above
 
 # data augmentation
 # wheres waldo has a massive class imbalance problem
@@ -87,7 +117,7 @@ if USE_PRETRAINED_SSD:
 #      positive tiles and forces it to learn the actual visual pattern
 #      we only jitter positive training tiles, not val/test
 AUGMENT_TRAINING = True
-SAMPLING_BALANCE_FACTOR = 10 if USE_PRETRAINED_SSD else 5 # roughly 1 positive per 10 negatives in each training batch
+SAMPLING_BALANCE_FACTOR = 10 if MODEL_TYPE in ("pretrained_ssd", "retinanet") else 5
 COLOR_JITTER_BRIGHTNESS = 0.2
 COLOR_JITTER_CONTRAST = 0.2
 COLOR_JITTER_SATURATION = 0.2
@@ -138,11 +168,11 @@ FOCAL_LOSS_GAMMA = 2.0
 FOCAL_LOSS_ALPHA = 0.25
 
 # training
-# the VGG16 backbone is frozen so we only train the detection heads and 1x1 conv
-# we tried unfreezing the backbone but with only ~70 positive training tiles
-# it just learned to detect everything as waldo (100% recall, 3% precision)
-# keeping the backbone frozen means we have way fewer trainable parameters
-# and the model focuses on learning what waldo looks like, not how to see
+# for all pretrained models (SSD and RetinaNet) we freeze the backbone
+# and only train the detection heads plus our 1x1 preprocessing conv
+# we tried unfreezing the backbone but with limited positive training tiles
+# it just learned to detect everything as waldo instead of learning what
+# waldo specifically looks like. freezing keeps the pretrained features intact
 LEARNING_RATE = 0.001
 WEIGHT_DECAY = 0.0001 # L2 regularization to prevent overfitting
 NUM_EPOCHS = 1000

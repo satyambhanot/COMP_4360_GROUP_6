@@ -15,6 +15,11 @@
 # make sure results directory exists before we start logging
 mkdir -p results
 
+# force python to not buffer its output
+# without this, print statements dont show up until the buffer is full
+# which makes it look like the script is stuck when training is actually running
+export PYTHONUNBUFFERED=1
+
 # save the complete output to a log file automatically
 # tee sends output to both the screen and the file at the same time
 exec > >(tee results/run_log.txt) 2>&1

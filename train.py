@@ -291,10 +291,9 @@ def train_one_epoch(model, dataloader, optimizer, device):
         labels = labels.to(device)
         bboxes = bboxes.to(device)
 
-        # print progress every 20 batches so gabe can see its still running
-        # without flooding the console on every single batch
-        if (batch_idx + 1) % 20 == 0 or batch_idx == 0:
-            print(f"  batch {batch_idx + 1}/{total_batches}", end="\r")
+        # print progress every 50 batches so gabe can see its still running
+        if (batch_idx + 1) % 50 == 0 or batch_idx == 0:
+            print(f"  batch {batch_idx + 1}/{total_batches}", flush=True)
 
         if MODEL_TYPE in ("pretrained_ssd", "retinanet"):
             # torchvision models (SSD and RetinaNet) share the same training interface
@@ -519,11 +518,12 @@ if __name__ == "__main__":
         }, os.path.join(CHECKPOINTS_DIR, "last_model.pth"))
 
         # print a summary for this epoch including the current learning rate
+        # flush=True forces the output to show up immediately even when piped through tee
         print(f"epoch {epoch + 1}/{NUM_EPOCHS} ({epoch_time:.1f}s)"
               f"  train loss: {train_loss:.4f} (cls: {train_cls:.4f}, loc: {train_loc:.4f})"
               f"  val loss: {val_loss:.4f} (cls: {val_cls:.4f}, loc: {val_loc:.4f})"
               f"  lr: {current_lr:.6f}"
-              f"{saved}")
+              f"{saved}", flush=True)
 
         # early stopping: if val loss hasnt improved for too long, stop training
         # no point continuing if the model has stopped learning

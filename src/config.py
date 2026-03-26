@@ -87,15 +87,18 @@ USE_PRETRAINED_SSD = MODEL_TYPE == "pretrained_ssd"
 
 # model specific input sizes
 # SSD300 expects exactly 300x300, thats baked into its architecture
-# RetinaNet can take any size but 800x800 gives a good balance of detail and speed
-# our tiles are 256x256 so both models resize internally
+# RetinaNet can take any size. we use 512x512 which is a good balance:
+#   still 2x bigger than SSD's 300x300 so we get more context
+#   but not so big that we waste compute upscaling 256x256 tiles
+#   (at 800x800 we were stretching each tile 3x which just adds blur)
+#   512x512 means 2x upscale which is cleaner and trains way faster
 PRETRAINED_SSD_INPUT_SIZE = 300
-RETINANET_INPUT_SIZE = 800
+RETINANET_INPUT_SIZE = 512
 
 # batch size depends on model because bigger models use more GPU memory
-# retinanet with 800x800 input needs smaller batches than SSD with 300x300
+# retinanet at 512x512 can handle larger batches than at 800x800
 if MODEL_TYPE == "retinanet":
-    BATCH_SIZE = 8 # retinanet at 800x800 uses more memory per image
+    BATCH_SIZE = 16 # retinanet at 512x512 fits well in 11GB VRAM
 elif MODEL_TYPE == "pretrained_ssd":
     BATCH_SIZE = 24 # SSD300 is lightweight
 # else custom_ssd uses the default BATCH_SIZE = 16 from above

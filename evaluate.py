@@ -10,6 +10,7 @@
 import sys
 import os
 import json
+import time
 
 # add the src folder to the path so we can import our modules
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
@@ -476,7 +477,7 @@ def plot_precision_recall_curve(confidences, labels):
     print(f"saved precision recall curve to results/precision_recall_curve.png")
 
 
-def save_results(metrics, confidences, labels, best_threshold=0.5, best_f1=0, image_metrics=None):
+def save_results(metrics, confidences, labels, best_threshold=0.5, best_f1=0, image_metrics=None, inference_time=0, num_tiles=0):
     # saves all the evaluation results to a json file
     # this makes it easy to load the numbers into the report
     # or compare against ablation study results later
@@ -491,6 +492,8 @@ def save_results(metrics, confidences, labels, best_threshold=0.5, best_f1=0, im
         "avg_confidence_negative": sum(c for c, l in zip(confidences, labels) if l == 0) / max(sum(1 for l in labels if l == 0), 1),
         "max_confidence_positive": max((c for c, l in zip(confidences, labels) if l == 1), default=0),
         "max_confidence_negative": max((c for c, l in zip(confidences, labels) if l == 0), default=0),
+        "inference_time_seconds": round(inference_time, 2),
+        "ms_per_tile": round(inference_time / max(num_tiles, 1) * 1000, 1),
     }
 
     # include image level metrics if we computed them
@@ -576,6 +579,227 @@ def plot_confidence_distribution(confidences, labels):
     plt.savefig(os.path.join(RESULTS_DIR, "confidence_distribution.png"), dpi=150)
     plt.close()
     print(f"saved confidence distribution to results/confidence_distribution.png")
+
+
+def plot_confusion_matrix(predictions, labels):
+    # draws the confusion matrix as a colored heatmap image
+    # way more useful in a report than just printing numbers to the console
+    # green cells for correct predictions, red cells for errors
+    # the professor will expect to see this in any ML project
+
+    tp = sum(1 for p, l in zip(predictions, labels) if p == 1 and l == 1)
+    fp = sum(1 for p, l in zip(predictions, labels) if p == 1 and l == 0)
+    tn = sum(1 for p, l in zip(predictions, labels) if p == 0 and l == 0)
+    fn = sum(1 for p, l in zip(predictions, labels) if p == 0 and l == 1)
+
+    matrix = [[tp, fn], [fp, tn]]
+    labels_text = [["True Pos", "False Neg"], ["False Pos", "True Neg"]]
+
+    fig, ax = plt.subplots(figsize=(6, 5))
+    # green for correct (TP, TN), red for errors (FP, FN)
+    colors = [["#4CAF50", "#F44336"], ["#F44336", "#4CAF50"]]
+
+    for i in range(2):
+        for j in range(2):
+            ax.add_patch(plt.Rectangle((j, 1 - i), 1, 1, fill=True,
+                         color=colors[i][j], alpha=0.6))
+            ax.text(j + 0.5, 1.5 - i, f"{labels_text[i][j]}\n{matrix[i][j]}",
+                    ha="center", va="center", fontsize=14, fontweight="bold")
+
+    ax.set_xlim(0, 2)
+    ax.set_ylim(0, 2)
+    ax.set_xticks([0.5, 1.5])
+    ax.set_xticklabels(["Predicted Waldo", "Predicted No Waldo"])
+    ax.set_yticks([0.5, 1.5])
+    ax.set_yticklabels(["Actual No Waldo", "Actual Waldo"])
+    ax.set_title("Confusion Matrix")
+    plt.tight_layout()
+    plt.savefig(os.path.join(RESULTS_DIR, "confusion_matrix.png"), dpi=150)
+    plt.close()
+    print(f"saved confusion matrix to results/confusion_matrix.png")
+
+
+def plot_f1_vs_threshold(confidences, labels):
+    # shows how the F1 score changes as we adjust the confidence threshold
+    # this is helpful because it answers "what threshold should we use?"
+    # a curve that peaks sharply means theres a clear best threshold
+    # a flat curve means the model isnt very sensitive to the threshold choice
+    # we also plot precision and recall alongside so you can see the tradeoff
+
+    thresholds = [t / 100 for t in range(5, 96, 5)]
+    precisions = []
+    recalls = []
+    f1_scores = []
+
+    for threshold in thresholds:
+        preds = [1 if c >= threshold else 0 for c in confidences]
+        tp = sum(1 for p, l in zip(preds, labels) if p == 1 and l == 1)
+        fp = sum(1 for p, l in zip(preds, labels) if p == 1 and l == 0)
+        fn = sum(1 for p, l in zip(preds, labels) if p == 0 and l == 1)
+
+        p = tp / (tp + fp) if (tp + fp) > 0 else 0
+        r = tp / (tp + fn) if (tp + fn) > 0 else 0
+        f1 = 2 * p * r / (p + r) if (p + r) > 0 else 0
+
+        precisions.append(p)
+        recalls.append(r)
+        f1_scores.append(f1)
+
+    # find the peak F1
+    best_idx = f1_scores.index(max(f1_scores)) if f1_scores else 0
+    best_t = thresholds[best_idx] if thresholds else 0
+    best_f1 = f1_scores[best_idx] if f1_scores else 0
+
+    plt.figure(figsize=(8, 6))
+    plt.plot(thresholds, f1_scores, marker="o", markersize=4, linewidth=2, label="F1 Score", color="blue")
+    plt.plot(thresholds, precisions, marker="s", markersize=3, linewidth=1.5, label="Precision", color="green", alpha=0.7)
+    plt.plot(thresholds, recalls, marker="^", markersize=3, linewidth=1.5, label="Recall", color="orange", alpha=0.7)
+
+    # mark the best F1 threshold
+    plt.scatter([best_t], [best_f1], color="red", s=100, zorder=5, label=f"Best F1={best_f1:.3f} at t={best_t:.2f}")
+    plt.axvline(x=best_t, color="red", linestyle=":", alpha=0.5)
+
+    plt.xlabel("Confidence Threshold")
+    plt.ylabel("Score")
+    plt.title("F1, Precision, and Recall vs Confidence Threshold")
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.xlim(0, 1)
+    plt.ylim(0, 1.05)
+    plt.tight_layout()
+    plt.savefig(os.path.join(RESULTS_DIR, "f1_vs_threshold.png"), dpi=150)
+    plt.close()
+    print(f"saved f1 vs threshold curve to results/f1_vs_threshold.png")
+
+
+def plot_roc_curve(confidences, labels):
+    # ROC curve shows false positive rate vs true positive rate
+    # this is one of the standard evaluation plots in machine learning
+    # the area under the curve (AUC) tells you overall how good the model is
+    # AUC of 1.0 means perfect, 0.5 means random guessing
+    # the professor will definitely expect to see this
+
+    # compute ROC points at many thresholds
+    thresholds = [t / 200 for t in range(0, 201)]
+    fpr_list = []
+    tpr_list = []
+
+    total_positive = sum(1 for l in labels if l == 1)
+    total_negative = sum(1 for l in labels if l == 0)
+
+    for threshold in thresholds:
+        preds = [1 if c >= threshold else 0 for c in confidences]
+        tp = sum(1 for p, l in zip(preds, labels) if p == 1 and l == 1)
+        fp = sum(1 for p, l in zip(preds, labels) if p == 1 and l == 0)
+
+        tpr = tp / total_positive if total_positive > 0 else 0
+        fpr = fp / total_negative if total_negative > 0 else 0
+
+        tpr_list.append(tpr)
+        fpr_list.append(fpr)
+
+    # compute AUC using the trapezoidal rule
+    # sort by fpr so the curve goes left to right
+    sorted_points = sorted(zip(fpr_list, tpr_list))
+    auc = 0
+    for i in range(1, len(sorted_points)):
+        dx = sorted_points[i][0] - sorted_points[i - 1][0]
+        avg_y = (sorted_points[i][1] + sorted_points[i - 1][1]) / 2
+        auc += dx * avg_y
+
+    plt.figure(figsize=(7, 6))
+    plt.plot(fpr_list, tpr_list, linewidth=2, label=f"ROC Curve (AUC = {auc:.3f})")
+    plt.plot([0, 1], [0, 1], linestyle=":", color="gray", label="Random Classifier (AUC = 0.5)")
+    plt.xlabel("False Positive Rate")
+    plt.ylabel("True Positive Rate")
+    plt.title("ROC Curve")
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.xlim(0, 1)
+    plt.ylim(0, 1.05)
+    plt.tight_layout()
+    plt.savefig(os.path.join(RESULTS_DIR, "roc_curve.png"), dpi=150)
+    plt.close()
+    print(f"saved ROC curve to results/roc_curve.png (AUC = {auc:.3f})")
+
+
+def plot_per_image_summary(predictions, labels, dataset):
+    # creates a visual summary showing how the model performed on each test image
+    # for each image we show: image id, total tiles, waldo found?, false positives
+    # this is useful for the report because it shows which specific images are
+    # easy vs hard for the model and helps explain where the model struggles
+
+    # group results by image id (same logic as compute_image_level_metrics)
+    image_results = {}
+    for i, tile_info in enumerate(dataset.tiles):
+        if i >= len(predictions):
+            break
+        img_id = tile_info["image_id"]
+        if img_id not in image_results:
+            image_results[img_id] = {
+                "has_waldo": False, "found_waldo": False,
+                "false_positives": 0, "total_tiles": 0
+            }
+        image_results[img_id]["total_tiles"] += 1
+        if labels[i] == 1:
+            image_results[img_id]["has_waldo"] = True
+            if predictions[i] == 1:
+                image_results[img_id]["found_waldo"] = True
+        if predictions[i] == 1 and labels[i] == 0:
+            image_results[img_id]["false_positives"] += 1
+
+    # sort by image id for consistent display
+    sorted_ids = sorted(image_results.keys(), key=lambda x: (len(x), x))
+
+    # build table data
+    rows = []
+    for img_id in sorted_ids:
+        r = image_results[img_id]
+        found = "yes" if r["found_waldo"] else ("MISSED" if r["has_waldo"] else "n/a")
+        rows.append([img_id, str(r["total_tiles"]), found, str(r["false_positives"])])
+
+    # draw as a table image
+    # figure out how tall the table needs to be
+    num_rows = len(rows)
+    fig_height = max(4, 0.4 * num_rows + 1.5)
+    fig, ax = plt.subplots(figsize=(8, fig_height))
+    ax.axis("off")
+
+    col_labels = ["Image ID", "Tiles", "Waldo Found?", "False Positives"]
+    table = ax.table(cellText=rows, colLabels=col_labels, loc="center", cellLoc="center")
+    table.auto_set_font_size(False)
+    table.set_fontsize(9)
+    table.scale(1, 1.3)
+
+    # color code the rows
+    for i, row_data in enumerate(rows):
+        row_idx = i + 1 # +1 because row 0 is the header
+        found_text = row_data[2]
+        fp_count = int(row_data[3])
+
+        if found_text == "yes" and fp_count == 0:
+            # perfect: found waldo, no false positives
+            for j in range(4):
+                table[row_idx, j].set_facecolor("#C8E6C9")
+        elif found_text == "MISSED":
+            # bad: missed waldo
+            for j in range(4):
+                table[row_idx, j].set_facecolor("#FFCDD2")
+        elif fp_count > 5:
+            # lots of false positives
+            for j in range(4):
+                table[row_idx, j].set_facecolor("#FFF9C4")
+
+    # style the header
+    for j in range(4):
+        table[0, j].set_facecolor("#1565C0")
+        table[0, j].set_text_props(color="white", fontweight="bold")
+
+    ax.set_title("Per Image Detection Summary", fontsize=13, fontweight="bold", pad=20)
+    plt.tight_layout()
+    plt.savefig(os.path.join(RESULTS_DIR, "per_image_summary.png"), dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"saved per image summary to results/per_image_summary.png")
 
 
 def visualize_samples(model, dataloader, device, num_samples=5):
@@ -738,9 +962,15 @@ if __name__ == "__main__":
     test_loader = get_dataloader(split="test", tile_size=256, batch_size=BATCH_SIZE, shuffle=False)
     print(f"  test set: {len(test_loader.dataset)} tiles")
 
-    # run predictions on every test tile
+    # run predictions on every test tile and measure how long it takes
+    # inference speed is useful for the report to show practical performance
     print("\nrunning predictions on test set...")
+    inference_start = time.time()
     predictions, labels, confidences, nms_results = run_predictions(model, test_loader, device)
+    inference_time = time.time() - inference_start
+    num_tiles = len(predictions)
+    time_per_tile = inference_time / max(num_tiles, 1)
+    print(f"  inference time: {inference_time:.1f}s for {num_tiles} tiles ({time_per_tile * 1000:.1f}ms per tile)")
 
     # compute and print tile level metrics
     metrics = compute_metrics(predictions, labels)
@@ -754,7 +984,7 @@ if __name__ == "__main__":
 
     # save all results to json for the report
     print("\nsaving results to json...")
-    save_results(metrics, confidences, labels, best_threshold, best_f1, image_metrics)
+    save_results(metrics, confidences, labels, best_threshold, best_f1, image_metrics, inference_time, num_tiles)
 
     # plot the confidence distribution
     print("\nplotting confidence distribution...")
@@ -763,6 +993,25 @@ if __name__ == "__main__":
     # plot precision vs recall curve for the report
     print("\nplotting precision recall curve...")
     plot_precision_recall_curve(confidences, labels)
+
+    # plot confusion matrix as a heatmap image
+    print("\nplotting confusion matrix...")
+    plot_confusion_matrix(predictions, labels)
+
+    # plot F1, precision, and recall vs confidence threshold
+    # shows the tradeoff and the best threshold to use
+    print("\nplotting f1 vs threshold curve...")
+    plot_f1_vs_threshold(confidences, labels)
+
+    # plot the ROC curve with AUC
+    # standard evaluation metric the professor will expect
+    print("\nplotting ROC curve...")
+    plot_roc_curve(confidences, labels)
+
+    # per image detection summary table
+    # shows which images the model found waldo in and which it struggled with
+    print("\nplotting per image summary...")
+    plot_per_image_summary(predictions, labels, test_loader.dataset)
 
     # plot training curves if we have the history
     print("\nplotting training curves...")

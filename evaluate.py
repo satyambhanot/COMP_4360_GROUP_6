@@ -155,6 +155,8 @@ def run_predictions(model, dataloader, device):
     all_nms_results = [] # the filtered boxes and scores from NMS for visualization
     hsv_filtered = 0 # count how many tiles we skipped with the HSV pre filter
 
+    use_amp = torch.cuda.is_available()
+
     with torch.no_grad():
         for images, labels, bboxes in dataloader:
             images = images.to(device)

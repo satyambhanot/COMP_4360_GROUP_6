@@ -335,7 +335,13 @@ def get_dataloader(split="train", tile_size=256, batch_size=BATCH_SIZE, shuffle=
         positive_weight = num_negative / num_positive / SAMPLING_BALANCE_FACTOR
         weights = [positive_weight if t["has_waldo"] else 1.0 for t in dataset.tiles]
 
-        sampler = WeightedRandomSampler(weights, num_samples=len(dataset))
+        # cap num_samples so each epoch doesnt take forever on large datasets
+        # with 12000+ tiles drawing every single one each epoch is wasteful
+        # the weighted sampler ensures we still see positive tiles frequently
+        # 4000 samples per epoch is enough variety while keeping epochs fast
+        # (4000 / batch_size_8 = 500 batches per epoch instead of 1600+)
+        epoch_samples = min(len(dataset), 4000)
+        sampler = WeightedRandomSampler(weights, num_samples=epoch_samples)
         # cant use shuffle and sampler at the same time, the sampler handles randomness
         loader = DataLoader(dataset, batch_size=batch_size, sampler=sampler,
                             num_workers=4, pin_memory=True, persistent_workers=True)

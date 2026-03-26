@@ -5,10 +5,10 @@
 # this includes the main training, YOLOv8 comparison, ablation studies,
 # and comparison chart generation
 #
-# estimated total time on GTX 1080 Ti: ~3-4 hours
-#   step 1 (RetinaNet training + eval): ~90 min
+# estimated total time on GTX 1080 Ti: ~2 hours
+#   step 1 (RetinaNet training + eval): ~45-60 min
 #   step 2 (YOLOv8 comparison): ~15 min
-#   step 3 (ablation studies): ~90 min
+#   step 3 (ablation studies): ~45-60 min
 #   step 4 (comparison charts): ~10 sec
 #
 # usage: bash run_all.sh
@@ -22,7 +22,7 @@
 
 echo "========================================"
 echo "  Running Complete Pipeline + All Experiments"
-echo "  estimated time: 3-4 hours on GTX 1080 Ti"
+echo "  estimated time: ~2 hours on GTX 1080 Ti"
 echo "========================================"
 echo ""
 echo "date: $(date)"

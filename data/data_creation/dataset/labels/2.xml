@@ -1,0 +1,26 @@
+<annotation>
+    <folder>images</folder>
+    <filename>2</filename>
+    <path>../data/data_creation/dataset/images/2.jpg</path>
+    <source>
+        <database>Unknown</database>
+    </source>
+    <size>
+        <width>513</width>
+        <height>675</height>
+        <depth>3</depth>
+    </size>
+    <segmented>0</segmented>
+    <object>
+        <name>waldo</name>
+        <pose>Unspecified</pose>
+        <truncated>0</truncated>
+        <difficult>0</difficult>
+        <bndbox>
+            <xmin>364</xmin>
+            <ymin>342</ymin>
+            <xmax>410</xmax>
+            <ymax>396</ymax>
+        </bndbox>
+    </object>
+</annotation>

@@ -272,9 +272,12 @@ def compute_loss(locs, cls_scores, anchors, labels, bboxes):
     return total_loss, cls_loss.item(), loc_loss.item()
 
 
-def train_one_epoch(model, dataloader, optimizer, device):
+def train_one_epoch(model, dataloader, optimizer, device, scaler=None):
     # runs one full pass through the training data
     # for each batch: forward pass, compute loss, backward pass, update weights
+    # uses mixed precision (AMP) if a scaler is provided
+    # AMP runs the forward pass in float16 which is ~2x faster on modern GPUs
+    # and uses half the memory so we can fit bigger batches
     # returns the average loss for this epoch
 
     model.train() # put the model in training mode
@@ -283,6 +286,7 @@ def train_one_epoch(model, dataloader, optimizer, device):
     running_cls_loss = 0.0
     running_loc_loss = 0.0
     num_batches = 0
+    use_amp = scaler is not None
 
     total_batches = len(dataloader)
     for batch_idx, (images, labels, bboxes) in enumerate(dataloader):
@@ -295,41 +299,44 @@ def train_one_epoch(model, dataloader, optimizer, device):
         if (batch_idx + 1) % 50 == 0 or batch_idx == 0:
             print(f"  batch {batch_idx + 1}/{total_batches}", flush=True)
 
-        if MODEL_TYPE in ("pretrained_ssd", "retinanet"):
-            # torchvision models (SSD and RetinaNet) share the same training interface
-            # they take images + targets and compute loss internally
-            # returns a dict with "classification" and "bbox_regression" losses
-            targets = format_targets(labels, bboxes, device)
-            loss_dict = model(images, targets)
+        # mixed precision: run the forward pass in float16 for speed
+        # the autocast context manager handles the dtype conversions automatically
+        # we only use AMP on CUDA (not MPS or CPU) because thats where it helps
+        with torch.cuda.amp.autocast(enabled=use_amp):
+            if MODEL_TYPE in ("pretrained_ssd", "retinanet"):
+                targets = format_targets(labels, bboxes, device)
+                loss_dict = model(images, targets)
 
-            # for pretrained SSD we manually apply focal loss weighting
-            # RetinaNet already has focal loss built in so we use its loss directly
-            if MODEL_TYPE == "pretrained_ssd":
-                focal_cls_loss = focal_loss_weight(loss_dict["classification"])
-                cls_loss = focal_cls_loss.item()
-                loc_loss = loss_dict["bbox_regression"].item()
-                loss = focal_cls_loss + loss_dict["bbox_regression"]
+                if MODEL_TYPE == "pretrained_ssd":
+                    focal_cls_loss = focal_loss_weight(loss_dict["classification"])
+                    cls_loss = focal_cls_loss.item()
+                    loc_loss = loss_dict["bbox_regression"].item()
+                    loss = focal_cls_loss + loss_dict["bbox_regression"]
+                else:
+                    cls_loss = loss_dict["classification"].item()
+                    loc_loss = loss_dict["bbox_regression"].item()
+                    loss = loss_dict["classification"] + loss_dict["bbox_regression"]
             else:
-                # retinanet: focal loss is already applied internally
-                cls_loss = loss_dict["classification"].item()
-                loc_loss = loss_dict["bbox_regression"].item()
-                loss = loss_dict["classification"] + loss_dict["bbox_regression"]
-        else:
-            # our custom model returns raw predictions and we compute loss ourselves
-            locs, cls_scores, anchors = model(images)
-            loss, cls_loss, loc_loss = compute_loss(locs, cls_scores, anchors, labels, bboxes)
+                locs, cls_scores, anchors = model(images)
+                loss, cls_loss, loc_loss = compute_loss(locs, cls_scores, anchors, labels, bboxes)
 
-        # backward pass: compute gradients
-        optimizer.zero_grad() # reset gradients from the previous batch
-        loss.backward() # compute new gradients based on the loss
+        # backward pass with gradient scaling for mixed precision
+        optimizer.zero_grad()
+        if use_amp:
+            scaler.scale(loss).backward()
+            scaler.unscale_(optimizer)
+        else:
+            loss.backward()
 
         # clip gradients to prevent exploding updates when the loss is very high
-        # without this a single bad batch can make the weights jump wildly
-        # max_norm=1.0 is a standard value used in most fine tuning setups
-        # torch.nn.utils.clip_grad_norm_ is from pytorch
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
-        optimizer.step() # update the model weights using the clipped gradients
+        # update the model weights
+        if use_amp:
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            optimizer.step()
 
         running_loss += loss.item()
         running_cls_loss += cls_loss
@@ -366,25 +373,28 @@ def validate(model, dataloader, device):
     if MODEL_TYPE in ("pretrained_ssd", "retinanet"):
         model.train()
 
+    use_amp = torch.cuda.is_available() # only use AMP on CUDA
+
     with torch.no_grad():
         for images, labels, bboxes in dataloader:
             images = images.to(device)
             labels = labels.to(device)
             bboxes = bboxes.to(device)
 
-            if MODEL_TYPE in ("pretrained_ssd", "retinanet"):
-                targets = format_targets(labels, bboxes, device)
-                loss_dict = model(images, targets)
-                if MODEL_TYPE == "pretrained_ssd":
-                    focal_cls = focal_loss_weight(loss_dict["classification"])
-                    cls_loss = focal_cls.item()
+            with torch.cuda.amp.autocast(enabled=use_amp):
+                if MODEL_TYPE in ("pretrained_ssd", "retinanet"):
+                    targets = format_targets(labels, bboxes, device)
+                    loss_dict = model(images, targets)
+                    if MODEL_TYPE == "pretrained_ssd":
+                        focal_cls = focal_loss_weight(loss_dict["classification"])
+                        cls_loss = focal_cls.item()
+                    else:
+                        cls_loss = loss_dict["classification"].item()
+                    loc_loss = loss_dict["bbox_regression"].item()
+                    loss_val = cls_loss + loc_loss
+                    running_loss += loss_val
                 else:
-                    cls_loss = loss_dict["classification"].item()
-                loc_loss = loss_dict["bbox_regression"].item()
-                loss_val = cls_loss + loc_loss
-                running_loss += loss_val
-            else:
-                locs, cls_scores, anchors = model(images)
+                    locs, cls_scores, anchors = model(images)
                 loss, cls_loss, loc_loss = compute_loss(locs, cls_scores, anchors, labels, bboxes)
                 running_loss += loss.item()
 
@@ -453,6 +463,15 @@ if __name__ == "__main__":
         factor=LR_SCHEDULER_FACTOR
     )
 
+    # mixed precision training with automatic gradient scaling
+    # AMP (automatic mixed precision) runs the forward pass in float16
+    # which is roughly 2x faster and uses half the GPU memory
+    # the GradScaler adjusts gradient magnitudes to prevent underflow in float16
+    # we only use this on CUDA since MPS and CPU dont benefit from AMP
+    scaler = torch.cuda.amp.GradScaler() if torch.cuda.is_available() else None
+    if scaler:
+        print(f"  using mixed precision (AMP) for faster training")
+
     # keep track of the best validation loss so we know when to save
     best_val_loss = float("inf")
     best_epoch = 0
@@ -470,7 +489,7 @@ if __name__ == "__main__":
         epoch_start = time.time()
 
         # train for one epoch
-        train_loss, train_cls, train_loc = train_one_epoch(model, train_loader, optimizer, device)
+        train_loss, train_cls, train_loc = train_one_epoch(model, train_loader, optimizer, device, scaler)
 
         # validate to check for overfitting
         val_loss, val_cls, val_loc = validate(model, val_loader, device)

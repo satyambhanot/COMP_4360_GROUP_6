@@ -337,10 +337,16 @@ def get_dataloader(split="train", tile_size=256, batch_size=BATCH_SIZE, shuffle=
 
         sampler = WeightedRandomSampler(weights, num_samples=len(dataset))
         # cant use shuffle and sampler at the same time, the sampler handles randomness
-        loader = DataLoader(dataset, batch_size=batch_size, sampler=sampler)
+        loader = DataLoader(dataset, batch_size=batch_size, sampler=sampler,
+                            num_workers=4, pin_memory=True, persistent_workers=True)
     else:
-        loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+        loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle,
+                            num_workers=4, pin_memory=True, persistent_workers=True)
 
+    # num_workers=4 loads tiles in parallel so the GPU never waits for data
+    # pin_memory=True speeds up CPU to GPU memory transfers
+    # persistent_workers=True keeps the worker processes alive between epochs
+    # so they dont have to restart every time (saves ~2s per epoch)
     return loader
 
 

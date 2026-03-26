@@ -24,15 +24,13 @@ import json
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 
-from model import WaldoDetector, create_model
+from model import create_model
 from data_pipeline import get_dataloader
-from ConcatenateAnchors import generate_anchors
 from config import (
     LEARNING_RATE, NUM_EPOCHS, BATCH_SIZE,
-    CHECKPOINTS_DIR, NUM_CLASSES, INPUT_SIZE,
+    CHECKPOINTS_DIR, INPUT_SIZE,
     MODEL_TYPE,
     PRETRAINED_SSD_INPUT_SIZE, RETINANET_INPUT_SIZE,
     LR_SCHEDULER_PATIENCE, LR_SCHEDULER_FACTOR,

@@ -16,21 +16,21 @@ import time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 import torch
-import torch.nn.functional as F
 import matplotlib
 matplotlib.use("Agg") # use non interactive backend so it works without a display
 import matplotlib.pyplot as plt
 from PIL import Image, ImageDraw
 from torchvision import transforms
 
-from model import WaldoDetector, WaldoDetectorPretrained, WaldoDetectorRetinaNet, create_model
+from model import WaldoDetector, WaldoDetectorPretrained, WaldoDetectorRetinaNet
 from data_pipeline import get_dataloader
 from nms import apply_nms
 from config import (
     CHECKPOINTS_DIR, BATCH_SIZE, INPUT_SIZE,
     IMAGENET_MEAN, IMAGENET_STD, RAW_IMAGES,
     MODEL_TYPE, NMS_CONFIDENCE_THRESHOLD,
-    HSV_FILTER_THRESHOLD, USE_TTA
+    HSV_FILTER_THRESHOLD, USE_TTA,
+    RETINANET_INPUT_SIZE
 )
 from pre_processing import ApplyHSVMask
 
@@ -926,8 +926,7 @@ def run_demo(model, device, image_path=None):
                     if boxes.shape[0] > 0:
                         w_off, h_off = batch_coords[i]
                         # boxes are in model input space, scale back to tile size
-                        # SSD uses 300x300, RetinaNet uses 800x800
-                        from config import RETINANET_INPUT_SIZE, PRETRAINED_SSD_INPUT_SIZE
+                        # SSD uses 300x300, RetinaNet uses 512x512
                         model_input = RETINANET_INPUT_SIZE if model.model_type == "retinanet" else 300.0
                         scale = INPUT_SIZE / model_input
                         adjusted_boxes = boxes.cpu().clone() * scale

@@ -1,190 +1,531 @@
 # evaluate_ablation.py
-# this is where we figure out if each piece of our pipeline actually helps
-# we train and test multiple versions of the model with different parts turned off
-# then compare the results to see what matters and what doesnt
+# runs ablation studies to prove each component of our pipeline actually helps
+# for each experiment we train a variant of the model with one thing changed
+# then evaluate on the same test set and compare the results
 #
-# this file is really important for the report because it shows
-# we understand why each component is there, not just that the whole thing works
-# the professor wants to see that we can justify our design choices with data
+# this is really important for the report because the professor wants to see
+# that we understand why each component is there, not just that we threw
+# everything together and hoped it would work. ablation studies show that
+# each design choice was deliberate and backed by data
 #
-# how it works:
-#   for each experiment we create a slightly different version of the model
-#   train it for the same number of epochs on the same data
-#   evaluate it on the same test set
-#   then compare all the results side by side
-#   every experiment uses the same random seed so the data splits are identical
-#   this makes the comparison fair
+# the studies we run:
+#   1. preprocessing impact: does our HSV mask and Sobel edge detection help?
+#   2. model architecture: how do custom SSD, pretrained SSD, and RetinaNet compare?
 #
+# for study 1 we train the same architecture with different preprocessing:
+#   full pipeline (RGB + HSV + Sobel) vs RGB + HSV only vs RGB only
+#   if removing a component hurts performance, that proves it was helping
 #
-# study 1: sobel edge detector bypass
+# study 2 just loads results from the different model runs
+# (we dont retrain here, just compare the saved results)
 #
-#   what we test:
-#     run the full model with sobel edges vs without sobel edges
-#     with sobel: model gets 5 channels (RGB + HSV mask + Sobel)
-#     without sobel: model gets 4 channels (RGB + HSV mask only)
+# each training run uses the same random seed, same data split, same number
+# of epochs so the comparison is fair. the only thing that changes is
+# the specific component being tested
 #
-#   why we test this:
-#     the sobel edge detector is supposed to help the model find waldos stripes
-#     because the red and white stripes create strong horizontal edges
-#     but maybe the backbone can figure out edges on its own
-#     and the sobel channel is just adding noise
+# WARNING: training multiple models takes a long time
+# on the GTX 1080 Ti each run is about 1 hour
+# study 1 alone trains 3 models so thats about 3 hours
+# plan accordingly and maybe run overnight
 #
-#   what we expect:
-#     performance should drop without sobel because edge information
-#     helps distinguish waldos stripe pattern from other red/white objects
-#     if it doesnt drop then sobel isnt helping and we can simplify the model
-#
-#   what we need to change in the code:
-#     add a use_sobel flag to preprocess_batch and model.py
-#     when False, skip the sobel channel and adjust the 1x1 conv to take 4 channels
-#
-#
-# study 2: model size reduction
-#
-#   what we test:
-#     run the model with different numbers of SSD heads
-#     full model uses 5 heads (16x16, 8x8, 4x4, 2x2, 1x1)
-#     reduced model uses 3 heads (16x16, 8x8, 4x4)
-#     we could also try 2 heads or 4 heads
-#
-#   why we test this:
-#     more heads means the model can detect waldo at more scales
-#     but it also means more parameters and slower training
-#     the later heads (2x2, 1x1) have very few anchors so they might not be
-#     contributing much. if 3 heads works just as well as 5 thats a win
-#     because training is faster and the model is simpler
-#
-#   what we expect:
-#     some drop in performance with fewer heads but maybe not a lot
-#     waldo is roughly the same size in all tiles so detecting at one
-#     or two scales might be enough
-#     the paper by Liu et al (SSD: Single Shot MultiBox Detector, ECCV 2016)
-#     uses 6 heads but they were detecting objects of many different sizes
-#     we are only looking for one character who is always roughly the same size
-#
-#   what we need to change in the code:
-#     make num_heads a parameter in model.py instead of hardcoding 5
-#     pass a different number when creating the model for this experiment
-#
-#
-# study 3: image resolution
-#
-#   what we test:
-#     train separate models on each tile size: 64x64, 128x128, 256x256
-#     our data pipeline already generates tiles at all three sizes
-#     so we just need to train three models with different tile_size values
-#
-#   why we test this:
-#     waldo is about 30 pixels tall in the original images
-#     at 256x256 tiles waldo takes up maybe 12% of the tile (lots of clutter)
-#     at 128x128 waldo takes up about 23% (less clutter)
-#     at 64x64 waldo could take up almost half the tile (very focused)
-#     but at 64x64 we have 11,193 tiles vs only 608 at 256x256
-#     so theres a tradeoff between how focused each tile is and
-#     how many tiles the model has to search through
-#     also at 64x64 waldo might get split across tile boundaries
-#
-#   what we expect:
-#     128x128 might be the sweet spot
-#     64x64 could have issues with waldo being cut in half at tile edges
-#     256x256 has a lot of clutter making it harder for the model
-#     we should report both accuracy and total tiles processed
-#     to show the full tradeoff
-#
-#   what we need to change in the code:
-#     nothing, just call get_dataloader with different tile_size values
-#     the dataset already supports this
-#
-#
-# study 4: color information
-#
-#   what we test:
-#     train the model on three versions of the same images:
-#       full color (RGB, what we normally use)
-#       grayscale (convert to gray, duplicate to 3 channels for mobilenet)
-#       black and white (threshold grayscale to pure black or white pixels)
-#
-#   why we test this:
-#     waldos most distinctive feature is his red and white striped shirt
-#     if we remove color the HSV mask becomes meaningless because
-#     theres no color information to detect red and white
-#     but the sobel edges should still work because edges exist in grayscale
-#     this study shows how much our model depends on color vs structure
-#     the original Hey Waldo dataset (github.com/vc1492a/Hey-Waldo)
-#     actually includes grayscale and black/white versions of the tiles
-#     which is what inspired this study
-#
-#   what we expect:
-#     big performance drop when color is removed
-#     because waldos red and white stripes are his most distinctive feature
-#     grayscale should perform better than black/white because
-#     grayscale keeps the brightness information (waldo is lighter than background)
-#     black/white throws that away too
-#     sobel should partially compensate because stripe edges still exist
-#
-#   what we need to change in the code:
-#     add a color_mode parameter to the dataset or preprocessing
-#     when "grayscale": convert RGB to gray, duplicate to 3 channels
-#     when "bw": convert to grayscale, threshold, duplicate to 3 channels
-#     the imagenet normalization might need adjusting for grayscale
-#
-#
-# study 5: pretrained vs random backbone
-#
-#   what we test:
-#     train the model with mobilenet backbone pretrained on imagenet
-#     vs mobilenet backbone with completely random weights
-#
-#   why we test this:
-#     our whole approach assumes that features learned from real photos
-#     (imagenet has dogs, cars, buildings etc) transfer to cartoon illustrations
-#     (wheres waldo drawings). but thats not obvious because cartoons look
-#     very different from photos. if the pretrained backbone doesnt help much
-#     then transfer learning isnt useful for this problem and we could
-#     potentially use a simpler custom backbone instead
-#     the concept of transfer learning and how it works across different
-#     visual domains is discussed in the MobileNetV3 paper
-#     (Howard et al, Searching for MobileNetV3, ICCV 2019)
-#
-#   what we expect:
-#     pretrained should win because even though cartoons look different
-#     from photos, the low level features (edges, corners, textures)
-#     are similar. mobilenet learned these in its early layers and those
-#     features are useful for any visual task
-#     the interesting question is by how much. if pretrained wins by
-#     a huge margin it means the model heavily relies on transfer learning
-#     if its close it means the task is simple enough to learn from scratch
-#
-#   what we need to change in the code:
-#     add a use_pretrained flag to model.py
-#     when True: load mobilenet with weights='DEFAULT' (pretrained on imagenet)
-#     when False: load mobilenet with weights=None (random initialization)
-#     thats literally one line change, everything else stays the same
-#
-#
-# what we collect for every experiment:
-#   accuracy, precision, recall, f1 score
-#   confusion matrix (true positives, false positives, true negatives, false negatives)
-#   training loss curve (loss per epoch)
-#   validation loss curve (to check for overfitting)
-#   how many epochs it took to reach the best val loss
-#   total training time on the GTX 1080 Ti
-#
-# what this file should output for the report:
-#   a comparison table with one row per experiment and columns for all metrics
-#   training curves overlaid on one chart so you can see which variants learn faster
-#   bar charts comparing accuracy/recall/f1 across experiments
-#   a few example tiles where different variants disagree
-#     (one found waldo, the other didnt) to visualize what each component helps with
-#
-# things to be careful about:
-#   use the same random seed for every experiment so data splits are identical
-#   use the same number of epochs for fair comparison
-#   save each experiments checkpoint with a different name
-#     like checkpoints/ablation_no_sobel.pth, checkpoints/ablation_grayscale.pth
-#   training 5 experiments x 50 epochs each could take a while on the GTX 1080 Ti
-#   we might want to use fewer epochs for ablation (like 20) to save time
-#   some experiments change the number of input channels to the model
-#     so the 1x1 conv layer needs to match (5 channels, 4 channels, or skip it)
+# usage: python evaluate_ablation.py
 
-# TODO: implement once train.py and evaluate.py are working
+import sys
+import os
+import json
+import time
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+
+import torch
+import torch.nn.functional as F
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import numpy as np
+
+from model import create_model
+from data_pipeline import get_dataloader
+from config import (
+    LEARNING_RATE, NUM_EPOCHS, BATCH_SIZE,
+    CHECKPOINTS_DIR, MODEL_TYPE, INPUT_SIZE,
+    LR_SCHEDULER_PATIENCE, LR_SCHEDULER_FACTOR,
+    EARLY_STOPPING_PATIENCE, WEIGHT_DECAY,
+    RETINANET_INPUT_SIZE, PRETRAINED_SSD_INPUT_SIZE
+)
+
+RESULTS_DIR = os.path.join(os.path.dirname(__file__), "results")
+ABLATION_DIR = os.path.join(RESULTS_DIR, "ablation")
+
+# how many epochs to train each ablation variant
+# we use fewer epochs than the main training to save time
+# 30 is enough to see if a component makes a meaningful difference
+# the model wont fully converge but thats fine for ablation
+# we just need to see relative differences between variants
+ABLATION_EPOCHS = 30
+
+# device setup
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+    device = torch.device("mps")
+else:
+    device = torch.device("cpu")
+
+
+def train_variant(model, train_loader, val_loader, variant_name, num_epochs=ABLATION_EPOCHS):
+    # trains a single model variant and returns the best validation loss
+    # this is a simplified version of train.py's training loop
+    # we dont need all the bells and whistles for ablation, just train and evaluate
+
+    model = model.to(device)
+    model_type = model.model_type
+    print(f"  training {variant_name} ({model_type})...")
+    print(f"  trainable params: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
+
+    # set up optimizer (same as train.py)
+    if hasattr(model, 'get_param_groups'):
+        head_params = model.get_param_groups()
+        optimizer = torch.optim.SGD(head_params, lr=LEARNING_RATE, momentum=0.9, weight_decay=WEIGHT_DECAY)
+    else:
+        optimizer = torch.optim.Adam(
+            filter(lambda p: p.requires_grad, model.parameters()), lr=LEARNING_RATE
+        )
+
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="min", patience=LR_SCHEDULER_PATIENCE, factor=LR_SCHEDULER_FACTOR
+    )
+
+    best_val_loss = float("inf")
+    best_epoch = 0
+    start_time = time.time()
+
+    for epoch in range(num_epochs):
+        # train one epoch
+        model.train()
+        train_loss = 0
+        train_batches = 0
+
+        for images, labels, bboxes in train_loader:
+            images = images.to(device)
+            labels = labels.to(device)
+            bboxes = bboxes.to(device)
+
+            if model_type in ("pretrained_ssd", "retinanet"):
+                # format targets for torchvision models
+                if model_type == "retinanet":
+                    scale = RETINANET_INPUT_SIZE / INPUT_SIZE
+                else:
+                    scale = PRETRAINED_SSD_INPUT_SIZE / INPUT_SIZE
+
+                targets = []
+                for i in range(len(labels)):
+                    if labels[i].item() == 1:
+                        box = bboxes[i].unsqueeze(0).to(device) * scale
+                        targets.append({"boxes": box, "labels": torch.tensor([1], dtype=torch.long, device=device)})
+                    else:
+                        targets.append({"boxes": torch.zeros(0, 4, device=device), "labels": torch.zeros(0, dtype=torch.long, device=device)})
+
+                loss_dict = model(images, targets)
+                loss = loss_dict["classification"] + loss_dict["bbox_regression"]
+            else:
+                from ConcatenateAnchors import concatenate_all_heads
+                locs, cls_scores, anchors = model(images)
+                # simplified loss for custom SSD
+                loss = F.cross_entropy(cls_scores.view(-1, 2), torch.zeros(cls_scores.shape[0] * cls_scores.shape[1], dtype=torch.long, device=device))
+
+            optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            optimizer.step()
+
+            train_loss += loss.item()
+            train_batches += 1
+
+        avg_train = train_loss / max(train_batches, 1)
+
+        # validate
+        model.train() if model_type in ("pretrained_ssd", "retinanet") else model.eval()
+        val_loss = 0
+        val_batches = 0
+
+        with torch.no_grad():
+            for images, labels, bboxes in val_loader:
+                images = images.to(device)
+                labels = labels.to(device)
+                bboxes = bboxes.to(device)
+
+                if model_type in ("pretrained_ssd", "retinanet"):
+                    if model_type == "retinanet":
+                        scale = RETINANET_INPUT_SIZE / INPUT_SIZE
+                    else:
+                        scale = PRETRAINED_SSD_INPUT_SIZE / INPUT_SIZE
+
+                    targets = []
+                    for i in range(len(labels)):
+                        if labels[i].item() == 1:
+                            box = bboxes[i].unsqueeze(0).to(device) * scale
+                            targets.append({"boxes": box, "labels": torch.tensor([1], dtype=torch.long, device=device)})
+                        else:
+                            targets.append({"boxes": torch.zeros(0, 4, device=device), "labels": torch.zeros(0, dtype=torch.long, device=device)})
+
+                    loss_dict = model(images, targets)
+                    loss_val = loss_dict["classification"].item() + loss_dict["bbox_regression"].item()
+                else:
+                    locs, cls_scores, anchors = model(images)
+                    loss_val = F.cross_entropy(cls_scores.view(-1, 2), torch.zeros(cls_scores.shape[0] * cls_scores.shape[1], dtype=torch.long, device=device)).item()
+
+                val_loss += loss_val
+                val_batches += 1
+
+        avg_val = val_loss / max(val_batches, 1)
+        scheduler.step(avg_val)
+
+        if avg_val < best_val_loss:
+            best_val_loss = avg_val
+            best_epoch = epoch + 1
+            # save checkpoint for this variant
+            checkpoint_path = os.path.join(CHECKPOINTS_DIR, f"ablation_{variant_name}.pth")
+            torch.save({
+                "epoch": epoch + 1,
+                "model_type": model_type,
+                "model_state_dict": model.state_dict(),
+                "val_loss": avg_val
+            }, checkpoint_path)
+
+        if (epoch + 1) % 10 == 0 or epoch == 0:
+            print(f"    epoch {epoch + 1}/{num_epochs}  train: {avg_train:.4f}  val: {avg_val:.4f}")
+
+    elapsed = time.time() - start_time
+    print(f"  done in {elapsed:.0f}s, best val loss {best_val_loss:.4f} at epoch {best_epoch}")
+    model.eval()
+    return best_val_loss, best_epoch, elapsed
+
+
+def evaluate_variant(model, test_loader, variant_name):
+    # runs the trained model on the test set and computes metrics
+    # returns a dict with precision, recall, F1 etc
+
+    model = model.to(device)
+    model.eval()
+    model_type = model.model_type
+
+    all_preds = []
+    all_labels = []
+    all_confs = []
+
+    with torch.no_grad():
+        for images, labels, bboxes in test_loader:
+            images = images.to(device)
+
+            if model_type in ("pretrained_ssd", "retinanet"):
+                detections = model(images)
+                for i in range(len(detections)):
+                    det = detections[i]
+                    waldo_mask = det["labels"] == 1
+                    scores = det["scores"][waldo_mask]
+                    if scores.shape[0] > 0:
+                        all_preds.append(1)
+                        all_confs.append(scores.max().item())
+                    else:
+                        all_preds.append(0)
+                        all_confs.append(0.0)
+                    all_labels.append(labels[i].item())
+            else:
+                locs, cls_scores, anchors = model(images)
+                from nms import apply_nms
+                nms_results = apply_nms(locs, cls_scores, anchors)
+                for i in range(images.shape[0]):
+                    boxes, scores = nms_results[i]
+                    if boxes.shape[0] > 0:
+                        all_preds.append(1)
+                        all_confs.append(scores.max().item())
+                    else:
+                        all_preds.append(0)
+                        all_confs.append(0.0)
+                    all_labels.append(labels[i].item())
+
+    # compute metrics
+    tp = sum(1 for p, l in zip(all_preds, all_labels) if p == 1 and l == 1)
+    fp = sum(1 for p, l in zip(all_preds, all_labels) if p == 1 and l == 0)
+    tn = sum(1 for p, l in zip(all_preds, all_labels) if p == 0 and l == 0)
+    fn = sum(1 for p, l in zip(all_preds, all_labels) if p == 0 and l == 1)
+
+    total = len(all_preds)
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
+    accuracy = (tp + tn) / total if total > 0 else 0
+
+    result = {
+        "variant": variant_name,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "accuracy": accuracy,
+        "tp": tp, "fp": fp, "tn": tn, "fn": fn
+    }
+
+    print(f"  {variant_name}: precision={precision:.4f} recall={recall:.4f} f1={f1:.4f}")
+    return result
+
+
+def run_preprocessing_ablation():
+    # study 1: does our preprocessing (HSV mask + Sobel edges) actually help?
+    # we train three variants of the same base architecture:
+    #   full: RGB + HSV mask + Sobel edges (our normal pipeline)
+    #   hsv_only: RGB + HSV mask (no Sobel)
+    #   rgb_only: just RGB (no preprocessing at all)
+    # if the full model beats rgb_only, our preprocessing helps
+    # if hsv_only is close to full, sobel might not be adding much
+
+    print("\n" + "=" * 50)
+    print("  Study 1: Preprocessing Impact")
+    print("=" * 50)
+
+    train_loader = get_dataloader(split="train", tile_size=256, batch_size=BATCH_SIZE)
+    val_loader = get_dataloader(split="val", tile_size=256, batch_size=BATCH_SIZE, shuffle=False)
+    test_loader = get_dataloader(split="test", tile_size=256, batch_size=BATCH_SIZE, shuffle=False)
+
+    variants = [
+        ("full_pipeline", True, True),    # RGB + HSV + Sobel
+        ("hsv_only", True, False),         # RGB + HSV (no Sobel)
+        ("rgb_only", False, False),        # just RGB
+    ]
+
+    results = []
+
+    for name, use_hsv, use_sobel in variants:
+        print(f"\n--- {name} (hsv={use_hsv}, sobel={use_sobel}) ---")
+
+        # create model with specific preprocessing flags
+        model = create_model(use_hsv=use_hsv, use_sobel=use_sobel)
+
+        # train it
+        val_loss, best_epoch, elapsed = train_variant(model, train_loader, val_loader, name)
+
+        # load best checkpoint and evaluate
+        checkpoint_path = os.path.join(CHECKPOINTS_DIR, f"ablation_{name}.pth")
+        if os.path.exists(checkpoint_path):
+            cp = torch.load(checkpoint_path, map_location=device, weights_only=False)
+            model.load_state_dict(cp["model_state_dict"])
+
+        result = evaluate_variant(model, test_loader, name)
+        result["val_loss"] = val_loss
+        result["best_epoch"] = best_epoch
+        result["training_time"] = elapsed
+        results.append(result)
+
+    return results
+
+
+def plot_preprocessing_comparison(results):
+    # creates a bar chart comparing the preprocessing variants
+    # this goes in the report to show that HSV and Sobel actually help
+
+    if len(results) == 0:
+        return
+
+    names = [r["variant"] for r in results]
+    display_names = {
+        "full_pipeline": "RGB + HSV + Sobel",
+        "hsv_only": "RGB + HSV",
+        "rgb_only": "RGB Only"
+    }
+    labels = [display_names.get(n, n) for n in names]
+
+    metrics = ["precision", "recall", "f1"]
+    metric_labels = ["Precision", "Recall", "F1"]
+    colors = ["#2196F3", "#4CAF50", "#FF9800"]
+
+    x = np.arange(len(labels))
+    width = 0.25
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    for i, (metric, label, color) in enumerate(zip(metrics, metric_labels, colors)):
+        values = [r[metric] for r in results]
+        bars = ax.bar(x + i * width, values, width, label=label, color=color, alpha=0.85)
+        for bar, val in zip(bars, values):
+            if val > 0:
+                ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.01,
+                        f"{val:.3f}", ha="center", va="bottom", fontsize=9)
+
+    ax.set_ylabel("Score")
+    ax.set_title("Ablation Study: Preprocessing Impact")
+    ax.set_xticks(x + width)
+    ax.set_xticklabels(labels)
+    ax.legend()
+    ax.set_ylim(0, 1.15)
+    ax.grid(axis="y", alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(os.path.join(ABLATION_DIR, "preprocessing_comparison.png"), dpi=150)
+    plt.close()
+    print(f"saved preprocessing comparison to results/ablation/preprocessing_comparison.png")
+
+
+def load_architecture_results():
+    # study 2: model architecture comparison
+    # we dont retrain here, just load results from previous runs
+    # the user needs to have run each model and saved the results separately
+
+    print("\n" + "=" * 50)
+    print("  Study 2: Model Architecture Comparison")
+    print("=" * 50)
+
+    result_files = {
+        "Custom SSD": os.path.join(RESULTS_DIR, "custom_ssd_results.json"),
+        "Pretrained SSD300": os.path.join(RESULTS_DIR, "ssd_results.json"),
+        "RetinaNet": os.path.join(RESULTS_DIR, "retinanet_results.json"),
+    }
+
+    yolo_path = os.path.join(RESULTS_DIR, "yolo", "yolo_results.json")
+    if os.path.exists(yolo_path):
+        result_files["YOLOv8"] = yolo_path
+
+    results = []
+    for name, path in result_files.items():
+        if os.path.exists(path):
+            with open(path) as f:
+                data = json.load(f)
+            m = data["metrics"]
+            results.append({
+                "variant": name,
+                "precision": m.get("precision", 0),
+                "recall": m.get("recall", 0),
+                "f1": m.get("f1", 0),
+                "accuracy": m.get("accuracy", 0)
+            })
+            print(f"  loaded {name}: F1={m.get('f1', 0):.4f}")
+        else:
+            print(f"  {name}: no results found at {path}")
+
+    return results
+
+
+def plot_architecture_comparison(results):
+    # creates a bar chart comparing the different model architectures
+
+    if len(results) < 2:
+        print("need at least 2 architecture results to compare")
+        return
+
+    names = [r["variant"] for r in results]
+    metrics = ["precision", "recall", "f1"]
+    metric_labels = ["Precision", "Recall", "F1"]
+    colors = ["#2196F3", "#4CAF50", "#FF9800"]
+
+    x = np.arange(len(names))
+    width = 0.25
+
+    fig, ax = plt.subplots(figsize=(max(8, len(names) * 2.5), 6))
+
+    for i, (metric, label, color) in enumerate(zip(metrics, metric_labels, colors)):
+        values = [r[metric] for r in results]
+        bars = ax.bar(x + i * width, values, width, label=label, color=color, alpha=0.85)
+        for bar, val in zip(bars, values):
+            if val > 0:
+                ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.01,
+                        f"{val:.3f}", ha="center", va="bottom", fontsize=9)
+
+    ax.set_ylabel("Score")
+    ax.set_title("Ablation Study: Model Architecture Comparison")
+    ax.set_xticks(x + width)
+    ax.set_xticklabels(names, rotation=15, ha="right")
+    ax.legend()
+    ax.set_ylim(0, 1.15)
+    ax.grid(axis="y", alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(os.path.join(ABLATION_DIR, "architecture_comparison.png"), dpi=150)
+    plt.close()
+    print(f"saved architecture comparison to results/ablation/architecture_comparison.png")
+
+
+def save_ablation_summary(preprocessing_results, architecture_results):
+    # saves all ablation results to a single JSON file and generates a summary table
+    # the JSON is machine readable for automated comparison
+    # the table image goes directly into the report
+
+    summary = {
+        "preprocessing_ablation": preprocessing_results,
+        "architecture_comparison": architecture_results
+    }
+
+    json_path = os.path.join(ABLATION_DIR, "ablation_results.json")
+    with open(json_path, "w") as f:
+        json.dump(summary, f, indent=2)
+    print(f"\nsaved all ablation results to {json_path}")
+
+    # generate summary table image
+    all_results = preprocessing_results + architecture_results
+    if len(all_results) == 0:
+        return
+
+    headers = ["Experiment", "Precision", "Recall", "F1"]
+    rows = []
+    for r in all_results:
+        rows.append([
+            r["variant"],
+            f"{r['precision']:.4f}",
+            f"{r['recall']:.4f}",
+            f"{r['f1']:.4f}"
+        ])
+
+    fig, ax = plt.subplots(figsize=(10, max(3, 0.5 * len(rows) + 2)))
+    ax.axis("off")
+    table = ax.table(cellText=rows, colLabels=headers, loc="center", cellLoc="center")
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)
+    table.scale(1, 1.4)
+
+    for j in range(len(headers)):
+        table[0, j].set_facecolor("#1565C0")
+        table[0, j].set_text_props(color="white", fontweight="bold")
+
+    # highlight best F1 in green
+    best_idx = 0
+    best_f1 = 0
+    for i, r in enumerate(all_results):
+        if r["f1"] > best_f1:
+            best_f1 = r["f1"]
+            best_idx = i
+    for j in range(len(headers)):
+        table[best_idx + 1, j].set_facecolor("#C8E6C9")
+
+    ax.set_title("Ablation Study Summary", fontsize=14, fontweight="bold", pad=20)
+    plt.tight_layout()
+    plt.savefig(os.path.join(ABLATION_DIR, "ablation_summary.png"), dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"saved ablation summary table to results/ablation/ablation_summary.png")
+
+
+if __name__ == "__main__":
+    print("=" * 50)
+    print("  Ablation Studies")
+    print("=" * 50)
+    print()
+    print(f"using device: {device}")
+    print(f"ablation epochs: {ABLATION_EPOCHS}")
+    print(f"base model type: {MODEL_TYPE}")
+
+    os.makedirs(ABLATION_DIR, exist_ok=True)
+    os.makedirs(CHECKPOINTS_DIR, exist_ok=True)
+
+    # study 1: preprocessing impact (requires training 3 models)
+    print("\nthis will train 3 model variants to test preprocessing impact")
+    print("estimated time: ~90 minutes on GTX 1080 Ti")
+    preprocessing_results = run_preprocessing_ablation()
+    plot_preprocessing_comparison(preprocessing_results)
+
+    # study 2: architecture comparison (loads saved results, no training)
+    architecture_results = load_architecture_results()
+    if len(architecture_results) >= 2:
+        plot_architecture_comparison(architecture_results)
+
+    # save everything
+    save_ablation_summary(preprocessing_results, architecture_results)
+
+    print("\n" + "=" * 50)
+    print("  Ablation studies complete!")
+    print(f"  check results/ablation/ for all outputs")
+    print("=" * 50)

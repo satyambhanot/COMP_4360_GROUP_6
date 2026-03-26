@@ -20,9 +20,11 @@ COMP_4360_GROUP_6/
 ├── requirements.txt
 ├── run.sh                        # runs the entire pipeline start to finish
 ├── train.py                      # entry point for training the model
-├── evaluate.py                   # entry point for testing and visualization
+├── evaluate.py                   # evaluation with 10+ output plots
 ├── augment_images.py             # generates random crop tiles around waldo
-├── evaluate_ablation.py          # ablation study plans (comments only for now)
+├── evaluate_ablation.py          # ablation studies (preprocessing impact)
+├── compare_results.py            # cross model comparison charts
+├── train_yolo.py                 # standalone YOLOv8 comparison experiment
 ├── test_confidence.py            # quick confidence check on test tiles
 │
 ├── src/
@@ -81,10 +83,10 @@ python evaluate.py             # evaluate and generate plots
 All settings for the project live in one file. Paths, tile sizes, color thresholds, model architecture parameters, training hyperparameters, augmentation settings. Other files import from here so we only have to change a setting in one place.
 
 Key settings:
-- `USE_PRETRAINED_SSD = True` switches between pretrained SSD300 and custom SSD
+- `MODEL_TYPE = "retinanet"` switches between custom SSD, pretrained SSD300, and RetinaNet
 - `NUM_EPOCHS = 1000` with early stopping patience of 25
-- `SAMPLING_BALANCE_FACTOR = 8` controls how often positive tiles are sampled during training
-- `NMS_CONFIDENCE_THRESHOLD = 0.3` for pretrained SSD (0.5 for custom)
+- `SAMPLING_BALANCE_FACTOR = 10` controls how often positive tiles are sampled during training
+- `NMS_CONFIDENCE_THRESHOLD = 0.5` confidence cutoff for detections
 
 ### Step 2: Data Pipeline (src/data_pipeline.py)
 
@@ -185,28 +187,29 @@ All annotations are in Pascal VOC XML format. The data pipeline generates tiles 
 
 ## Models
 
-| | Pretrained SSD300 (primary) | Custom WaldoDetector (baseline) |
-|---|---|---|
-| Backbone | VGG16 (COCO pretrained) | MobileNetV2 (ImageNet pretrained) |
-| Detection heads | SSD300 heads (COCO pretrained) | 5 custom SSD blocks (from scratch) |
-| Backbone training | Frozen (COCO features preserved) | Frozen |
-| Total parameters | ~35M (~11M trainable) | ~2.5M |
-| Preprocessing | HSV mask + Sobel on HSV | HSV mask + Sobel on HSV |
-| Optimizer | SGD (momentum 0.9) | Adam |
-| Config flag | `USE_PRETRAINED_SSD = True` | `USE_PRETRAINED_SSD = False` |
+We tried three architectures during this project, progressing from simple to more capable:
+
+| | RetinaNet (primary) | Pretrained SSD300 | Custom SSD (baseline) |
+|---|---|---|---|
+| Backbone | ResNet50 + FPN (COCO) | VGG16 (COCO) | MobileNetV2 (ImageNet) |
+| Detection heads | RetinaNet FPN heads | SSD300 heads | 5 custom SSD blocks |
+| Input size | 800x800 | 300x300 | 256x256 |
+| Focal loss | Built in | Manual (added by us) | Manual |
+| Backbone training | Frozen | Frozen | Frozen |
+| Optimizer | SGD (momentum 0.9) | SGD (momentum 0.9) | Adam |
+| Config flag | `MODEL_TYPE = "retinanet"` | `MODEL_TYPE = "pretrained_ssd"` | `MODEL_TYPE = "custom_ssd"` |
+
+We also compare against YOLOv8 (via `train_yolo.py`) as a state of the art reference point. YOLOv8 processes full images at 1280x1280 instead of tiles, giving it significantly more context.
 
 
-## Ablation Studies (Planned)
+## Ablation Studies
 
-We have 5 ablation studies designed in `evaluate_ablation.py`:
+`evaluate_ablation.py` runs two ablation studies:
 
-1. **Sobel edge bypass**: full model vs no Sobel channel
-2. **Model size**: 5 SSD heads vs 3 SSD heads
-3. **Tile resolution**: 64x64 vs 128x128 vs 256x256
-4. **Color information**: full color vs grayscale vs black and white
-5. **Pretrained vs random backbone**: ImageNet weights vs random initialization
+1. **Preprocessing impact**: trains the model three ways (RGB only, RGB + HSV, RGB + HSV + Sobel) to measure how much our custom preprocessing channels contribute
+2. **Architecture comparison**: loads saved results from each model type (custom SSD, pretrained SSD, RetinaNet, YOLOv8) and generates side by side comparison charts
 
-Each experiment trains on the same data with the same random seed for fair comparison. The model already supports ablation flags (`use_hsv`, `use_sobel`, `use_pretrained`, `num_heads`).
+Each preprocessing experiment trains for 30 epochs with the same random seed for fair comparison. Results are saved to `results/ablation/` as charts and JSON.
 
 
 ## Configuration

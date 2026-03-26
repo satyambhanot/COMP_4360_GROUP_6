@@ -193,8 +193,9 @@ def train_variant(model, train_loader, val_loader, variant_name, num_epochs=ABLA
                 "val_loss": avg_val
             }, checkpoint_path)
 
-        if (epoch + 1) % 10 == 0 or epoch == 0:
-            print(f"    epoch {epoch + 1}/{num_epochs}  train: {avg_train:.4f}  val: {avg_val:.4f}")
+        # print every epoch so you can see training is progressing
+        saved_marker = " [saved]" if avg_val == best_val_loss else ""
+        print(f"    epoch {epoch + 1}/{num_epochs}  train: {avg_train:.4f}  val: {avg_val:.4f}{saved_marker}")
 
     elapsed = time.time() - start_time
     print(f"  done in {elapsed:.0f}s, best val loss {best_val_loss:.4f} at epoch {best_epoch}")

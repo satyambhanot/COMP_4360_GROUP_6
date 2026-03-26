@@ -284,11 +284,17 @@ def train_one_epoch(model, dataloader, optimizer, device):
     running_loc_loss = 0.0
     num_batches = 0
 
-    for images, labels, bboxes in dataloader:
+    total_batches = len(dataloader)
+    for batch_idx, (images, labels, bboxes) in enumerate(dataloader):
         # move everything to the gpu (or cpu if no gpu)
         images = images.to(device)
         labels = labels.to(device)
         bboxes = bboxes.to(device)
+
+        # print progress every 20 batches so gabe can see its still running
+        # without flooding the console on every single batch
+        if (batch_idx + 1) % 20 == 0 or batch_idx == 0:
+            print(f"  batch {batch_idx + 1}/{total_batches}", end="\r")
 
         if MODEL_TYPE in ("pretrained_ssd", "retinanet"):
             # torchvision models (SSD and RetinaNet) share the same training interface

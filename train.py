@@ -393,8 +393,8 @@ def validate(model, dataloader, device):
                     running_loss += loss_val
                 else:
                     locs, cls_scores, anchors = model(images)
-                loss, cls_loss, loc_loss = compute_loss(locs, cls_scores, anchors, labels, bboxes)
-                running_loss += loss.item()
+                    loss, cls_loss, loc_loss = compute_loss(locs, cls_scores, anchors, labels, bboxes)
+                    running_loss += loss.item()
 
             running_cls_loss += cls_loss
             running_loc_loss += loc_loss

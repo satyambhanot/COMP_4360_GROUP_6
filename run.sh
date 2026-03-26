@@ -92,7 +92,7 @@ if MODEL_TYPE == 'retinanet':
     print(f'  preprocessing: HSV mask + Sobel edge detection on HSV')
     print(f'  backbone: ResNet50 + FPN (frozen, pretrained on COCO)')
     print(f'  detection heads: RetinaNet heads with built in focal loss')
-    print(f'  input size: 800x800 (larger view for more context)')
+    print(f'  input size: 512x512 (larger view for more context)')
 elif MODEL_TYPE == 'pretrained_ssd':
     print(f'  architecture: SSD300 VGG16 (pretrained on COCO)')
     print(f'  preprocessing: HSV mask + Sobel edge detection on HSV')

@@ -175,7 +175,7 @@ FOCAL_LOSS_ALPHA = 0.25
 # waldo specifically looks like. freezing keeps the pretrained features intact
 LEARNING_RATE = 0.001
 WEIGHT_DECAY = 0.0001 # L2 regularization to prevent overfitting
-NUM_EPOCHS = 1000
+NUM_EPOCHS = 150 # 150 is plenty, early stopping will kick in around 80-120 if it converges
 
 # learning rate scheduler
 # if the validation loss stops improving for LR_SCHEDULER_PATIENCE epochs

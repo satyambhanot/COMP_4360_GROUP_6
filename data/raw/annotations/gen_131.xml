@@ -1,0 +1,26 @@
+<annotation>
+	<folder>images</folder>
+	<filename>gen_131.jpg</filename>
+	<path>/home/gabrielbarnabe/COMP_4360_GROUP_6/data/raw/images/gen_131.jpg</path>
+	<source>
+		<database>Generated</database>
+	</source>
+	<size>
+		<width>800</width>
+		<height>449</height>
+		<depth>3</depth>
+	</size>
+	<segmented>0</segmented>
+	<object>
+		<name>waldo</name>
+		<pose>Unspecified</pose>
+		<truncated>0</truncated>
+		<difficult>0</difficult>
+		<bndbox>
+			<xmin>358</xmin>
+			<ymin>114</ymin>
+			<xmax>389</xmax>
+			<ymax>146</ymax>
+		</bndbox>
+	</object>
+</annotation>

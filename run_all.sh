@@ -28,6 +28,9 @@ echo ""
 echo "date: $(date)"
 echo ""
 
+# force python to not buffer output so progress shows up in real time
+export PYTHONUNBUFFERED=1
+
 # figure out which python command to use
 PYTHON=python3
 if ! command -v python3 &> /dev/null; then

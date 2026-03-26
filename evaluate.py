@@ -167,20 +167,28 @@ def run_predictions(model, dataloader, device):
             hsv_scores = hsv_mask.view(hsv_mask.shape[0], -1).mean(dim=1) # [N]
 
             # figure out which tiles pass the HSV filter
-            # we still need to run the model on tiles that pass
             passes_filter = hsv_scores >= HSV_FILTER_THRESHOLD
 
-            # for tiles that dont pass, immediately mark as negative
+            # prepare default results for every tile in this batch
+            # we fill in the defaults first (assume negative) then overwrite
+            # with actual model predictions for tiles that passed the filter
+            # this keeps results in the correct order matching the dataset
+            batch_preds = [0] * len(labels)
+            batch_confs = [0.0] * len(labels)
+            batch_nms = [(torch.zeros(0, 4), torch.zeros(0))] * len(labels)
+
+            # count how many got filtered out
             for i in range(len(labels)):
                 if not passes_filter[i]:
-                    all_predictions.append(0)
-                    all_labels.append(labels[i].item())
-                    all_confidences.append(0.0)
-                    all_nms_results.append((torch.zeros(0, 4), torch.zeros(0)))
                     hsv_filtered += 1
 
             # if all tiles in this batch were filtered out, skip model inference
             if not passes_filter.any():
+                for i in range(len(labels)):
+                    all_predictions.append(batch_preds[i])
+                    all_labels.append(labels[i].item())
+                    all_confidences.append(batch_confs[i])
+                    all_nms_results.append(batch_nms[i])
                 continue
 
             # only run the model on tiles that passed the filter
@@ -208,16 +216,13 @@ def run_predictions(model, dataloader, device):
                         flipped_confs[j] = scores.max().item() if scores.shape[0] > 0 else 0.0
 
             if hasattr(model, "model_type") and model.model_type in ("pretrained_ssd", "retinanet"):
-                # pretrained SSD returns detections directly in eval mode
-                # only run on filtered tiles to save inference time
+                # torchvision models return detections directly in eval mode
                 detections = model(filtered_images)
 
                 for j in range(len(detections)):
                     det = detections[j]
                     orig_idx = filtered_indices[j].item()
-                    label = labels[orig_idx].item()
 
-                    # filter to only waldo predictions (label 1, not background)
                     waldo_mask = det["labels"] == 1
                     boxes = det["boxes"][waldo_mask]
                     scores = det["scores"][waldo_mask]
@@ -229,27 +234,24 @@ def run_predictions(model, dataloader, device):
                         prediction = 0
                         confidence = 0.0
 
-                    # if TTA is on, take the max confidence between original and flipped
                     if USE_TTA and j in flipped_confs:
-                        flip_conf = flipped_confs[j]
-                        if flip_conf > confidence:
-                            confidence = flip_conf
+                        if flipped_confs[j] > confidence:
+                            confidence = flipped_confs[j]
                             prediction = 1
 
-                    all_predictions.append(prediction)
-                    all_labels.append(label)
-                    all_confidences.append(confidence)
-                    all_nms_results.append((boxes.cpu(), scores.cpu()))
+                    # write into the correct position in the batch arrays
+                    batch_preds[orig_idx] = prediction
+                    batch_confs[orig_idx] = confidence
+                    batch_nms[orig_idx] = (boxes.cpu(), scores.cpu())
 
             else:
-                # our custom model returns raw predictions, we run our own NMS
+                # custom model returns raw predictions, we run our own NMS
                 locs, cls_scores, anchors = model(filtered_images)
                 nms_results = apply_nms(locs, cls_scores, anchors)
 
                 for j in range(filtered_images.shape[0]):
                     boxes, scores = nms_results[j]
                     orig_idx = filtered_indices[j].item()
-                    label = labels[orig_idx].item()
 
                     if boxes.shape[0] > 0:
                         prediction = 1
@@ -258,17 +260,22 @@ def run_predictions(model, dataloader, device):
                         prediction = 0
                         confidence = 0.0
 
-                    # if TTA is on, take the max confidence between original and flipped
                     if USE_TTA and j in flipped_confs:
-                        flip_conf = flipped_confs[j]
-                        if flip_conf > confidence:
-                            confidence = flip_conf
+                        if flipped_confs[j] > confidence:
+                            confidence = flipped_confs[j]
                             prediction = 1
 
-                    all_predictions.append(prediction)
-                    all_labels.append(label)
-                    all_confidences.append(confidence)
-                    all_nms_results.append((boxes, scores))
+                    batch_preds[orig_idx] = prediction
+                    batch_confs[orig_idx] = confidence
+                    batch_nms[orig_idx] = (boxes, scores)
+
+            # append all results for this batch in the correct order
+            # this ensures results line up with dataset.tiles for image level metrics
+            for i in range(len(labels)):
+                all_predictions.append(batch_preds[i])
+                all_labels.append(labels[i].item())
+                all_confidences.append(batch_confs[i])
+                all_nms_results.append(batch_nms[i])
 
     print(f"  HSV pre-filter skipped {hsv_filtered} tiles with no red/white pixels")
     return all_predictions, all_labels, all_confidences, all_nms_results

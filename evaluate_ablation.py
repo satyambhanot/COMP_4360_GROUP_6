@@ -195,7 +195,7 @@ def train_variant(model, train_loader, val_loader, variant_name, num_epochs=ABLA
 
         # print every epoch so you can see training is progressing
         saved_marker = " [saved]" if avg_val == best_val_loss else ""
-        print(f"    epoch {epoch + 1}/{num_epochs}  train: {avg_train:.4f}  val: {avg_val:.4f}{saved_marker}")
+        print(f"    epoch {epoch + 1}/{num_epochs}  train: {avg_train:.4f}  val: {avg_val:.4f}{saved_marker}", flush=True)
 
     elapsed = time.time() - start_time
     print(f"  done in {elapsed:.0f}s, best val loss {best_val_loss:.4f} at epoch {best_epoch}")
@@ -297,7 +297,12 @@ def run_preprocessing_ablation():
     results = []
 
     for name, use_hsv, use_sobel in variants:
-        print(f"\n--- {name} (hsv={use_hsv}, sobel={use_sobel}) ---")
+        print(f"\n--- {name} (hsv={use_hsv}, sobel={use_sobel}) ---", flush=True)
+
+        # free GPU memory from the previous model before creating a new one
+        # without this we run out of VRAM on the second or third variant
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
         # create model with specific preprocessing flags
         model = create_model(use_hsv=use_hsv, use_sobel=use_sobel)
@@ -315,6 +320,11 @@ def run_preprocessing_ablation():
         result["val_loss"] = val_loss
         result["best_epoch"] = best_epoch
         result["training_time"] = elapsed
+
+        # free the model from GPU memory before the next variant
+        del model
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         results.append(result)
 
     return results

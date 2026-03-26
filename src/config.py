@@ -98,7 +98,7 @@ RETINANET_INPUT_SIZE = 512
 # batch size depends on model because bigger models use more GPU memory
 # retinanet at 512x512 can handle larger batches than at 800x800
 if MODEL_TYPE == "retinanet":
-    BATCH_SIZE = 16 # retinanet at 512x512 fits well in 11GB VRAM
+    BATCH_SIZE = 4 # retinanet with ResNet50 FPN is memory hungry even at 512x512
 elif MODEL_TYPE == "pretrained_ssd":
     BATCH_SIZE = 24 # SSD300 is lightweight
 # else custom_ssd uses the default BATCH_SIZE = 16 from above

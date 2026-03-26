@@ -300,7 +300,7 @@ def train_one_epoch(model, dataloader, optimizer, device, scaler=None):
         # mixed precision: run the forward pass in float16 for speed
         # the autocast context manager handles the dtype conversions automatically
         # we only use AMP on CUDA (not MPS or CPU) because thats where it helps
-        with torch.cuda.amp.autocast(enabled=use_amp):
+        with torch.amp.autocast("cuda", enabled=use_amp):
             if MODEL_TYPE in ("pretrained_ssd", "retinanet"):
                 targets = format_targets(labels, bboxes, device)
                 loss_dict = model(images, targets)
@@ -379,7 +379,7 @@ def validate(model, dataloader, device):
             labels = labels.to(device)
             bboxes = bboxes.to(device)
 
-            with torch.cuda.amp.autocast(enabled=use_amp):
+            with torch.amp.autocast("cuda", enabled=use_amp):
                 if MODEL_TYPE in ("pretrained_ssd", "retinanet"):
                     targets = format_targets(labels, bboxes, device)
                     loss_dict = model(images, targets)
@@ -466,7 +466,7 @@ if __name__ == "__main__":
     # which is roughly 2x faster and uses half the GPU memory
     # the GradScaler adjusts gradient magnitudes to prevent underflow in float16
     # we only use this on CUDA since MPS and CPU dont benefit from AMP
-    scaler = torch.cuda.amp.GradScaler() if torch.cuda.is_available() else None
+    scaler = torch.amp.GradScaler("cuda") if torch.cuda.is_available() else None
     if scaler:
         print(f"  using mixed precision (AMP) for faster training")
 

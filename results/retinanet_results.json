@@ -1,0 +1,32 @@
+{
+  "metrics": {
+    "accuracy": 0.8758746577426224,
+    "precision": 0.9730769230769231,
+    "recall": 0.38685015290519875,
+    "f1": 0.5536105032822757,
+    "tp": 253,
+    "fp": 7,
+    "tn": 2626,
+    "fn": 401
+  },
+  "best_threshold": 0.1,
+  "best_f1_at_optimal_threshold": 0.5536105032822757,
+  "total_positive_tiles": 654,
+  "total_negative_tiles": 2633,
+  "avg_confidence_positive": 0.2528122441575432,
+  "avg_confidence_negative": 0.0014872690751169555,
+  "max_confidence_positive": 0.960526704788208,
+  "max_confidence_negative": 0.9326556324958801,
+  "inference_time_seconds": 214.01,
+  "ms_per_tile": 65.1,
+  "image_level": {
+    "num_test_images": 50,
+    "images_with_waldo": 50,
+    "waldo_found_in": 21,
+    "image_detection_rate": 0.42,
+    "images_no_false_positives": 47,
+    "clean_image_rate": 0.94,
+    "avg_false_positives_per_image": 0.14,
+    "total_false_positives": 7
+  }
+}

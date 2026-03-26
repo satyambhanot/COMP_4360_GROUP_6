@@ -13,7 +13,7 @@
 #   the model learns at the anchor level, not the tile level
 #
 # we train on a GTX 1080 Ti with 11GB VRAM
-# with batch size 16 and 256x256 tiles this should fit comfortably
+# with batch size 24 and 256x256 tiles this fits comfortably
 
 import sys
 import os

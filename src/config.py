@@ -15,7 +15,7 @@ CHECKPOINTS_DIR = os.path.join(PROJECT_ROOT, "checkpoints")
 
 # data pipeline
 # controls how we chop up images and divide them into train/val/test
-TILE_SIZES = [256] # we only use 256x256 tiles, the 64 and 128 sizes were never actually used anywhere
+TILE_SIZES = [256] # we only generate 256x256 tiles, the model and evaluation both expect this size
 
 # grid offsets for tiling
 # instead of always starting the tile grid at (0,0) we also start at half-tile offsets
@@ -71,27 +71,27 @@ if USE_PRETRAINED_SSD:
     BATCH_SIZE = 24 # larger batch for pretrained SSD gives more stable gradients
 
 # data augmentation
-# we have a huge class imbalance problem (about 14000 negative tiles vs 56 positive)
-# if we dont do anything about it the model will just learn to always say "no waldo"
-# and get 99.6% accuracy while being completely useless at actually finding waldo
+# wheres waldo has a massive class imbalance problem
+# most tiles are negative (just random background clutter) and only a handful
+# actually contain waldo. without augmentation the model just learns to always
+# predict "no waldo" and gets high accuracy while being completely useless
 #
-# to fix this we do two things:
-#   1. weighted sampling: positive tiles get picked more often during training
-#      we compute the weight dynamically based on the actual counts
-#      and divide by SAMPLING_BALANCE_FACTOR so its not a full 50/50 split
-#      a factor of 5 means roughly 1 positive tile for every 5 negatives
-#   2. color jitter: each time the model sees a positive tile it looks slightly different
-#      random changes to brightness, contrast, and saturation
-#      this stops the model from just memorizing the exact 56 positive tiles
-#      we only do this on positive training tiles, not on val/test
-#      and we only change colors not positions so the bounding box stays the same
+# we handle this with two strategies:
+#   1. weighted sampling: positive tiles get sampled more often during training
+#      the weight is computed from the actual class counts in the dataset
+#      SAMPLING_BALANCE_FACTOR controls how aggressive the oversampling is
+#      factor 10 means roughly 1 positive tile per 10 negatives in each batch
+#   2. color jitter: each time the model sees a positive tile it looks slightly
+#      different with random changes to brightness, contrast, and saturation
+#      this stops the model from memorizing the exact pixel values of the
+#      positive tiles and forces it to learn the actual visual pattern
+#      we only jitter positive training tiles, not val/test
 AUGMENT_TRAINING = True
-SAMPLING_BALANCE_FACTOR = 10 if USE_PRETRAINED_SSD else 5 # bumped from 8 to 10 now that we have way more positive tiles from augmentation
+SAMPLING_BALANCE_FACTOR = 10 if USE_PRETRAINED_SSD else 5 # roughly 1 positive per 10 negatives in each training batch
 COLOR_JITTER_BRIGHTNESS = 0.2
 COLOR_JITTER_CONTRAST = 0.2
 COLOR_JITTER_SATURATION = 0.2
 FLIP_PROBABILITY = 0.5 # chance of flipping a training tile horizontally
-GRAYSCALE_PROBABILITY = 0.0 # turned this off, it was killing our HSV mask since theres no color left in grayscale
 BLUR_PROBABILITY = 0.2 # chance of applying gaussian blur to a training tile
 BLUR_KERNEL_SIZE = 3 # size of the blur kernel
 SHARPNESS_PROBABILITY = 0.2 # chance of randomly adjusting sharpness

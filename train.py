@@ -249,7 +249,7 @@ def train_one_epoch(model, dataloader, optimizer, device, scaler=None):
         bboxes = bboxes.to(device)
 
         # print progress every 50 batches so gabe can see its still running
-        if (batch_idx + 1) % 50 == 0 or batch_idx == 0:
+        if (batch_idx + 1) % 100 == 0 or batch_idx == 0:
             print(f"  batch {batch_idx + 1}/{total_batches}", flush=True)
 
         # mixed precision: run the forward pass in float16 for speed

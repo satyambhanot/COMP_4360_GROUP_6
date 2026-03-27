@@ -343,6 +343,16 @@ def get_dataloader(split="train", tile_size=256, batch_size=BATCH_SIZE, shuffle=
         # cant use shuffle and sampler at the same time, the sampler handles randomness
         loader = DataLoader(dataset, batch_size=batch_size, sampler=sampler,
                             num_workers=4, pin_memory=True, persistent_workers=True)
+    elif split == "val":
+        # cap validation samples so we dont spend half the epoch on validation
+        # we just need the val loss direction for early stopping, not exact numbers
+        # 1000 samples is enough to get a stable loss estimate
+        val_samples = min(len(dataset), 1000)
+        val_sampler = WeightedRandomSampler(
+            [1.0] * len(dataset), num_samples=val_samples
+        )
+        loader = DataLoader(dataset, batch_size=batch_size, sampler=val_sampler,
+                            num_workers=4, pin_memory=True, persistent_workers=True)
     else:
         loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle,
                             num_workers=4, pin_memory=True, persistent_workers=True)

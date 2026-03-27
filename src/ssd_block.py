@@ -1,4 +1,4 @@
-# ssd.py
+# ssd_block.py
 # a single SSD detection block that takes a feature map and makes predictions
 # each block predicts bounding box offsets and class scores at one scale
 # then downsamples the feature map for the next block to work on

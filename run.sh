@@ -78,39 +78,7 @@ echo ""
 echo "========================================"
 echo "  Step 3: Model summary"
 echo "========================================"
-$PYTHON -c "
-import sys; sys.path.insert(0, 'src')
-from model import create_model
-from config import MODEL_TYPE
-model = create_model()
-total = sum(p.numel() for p in model.parameters())
-trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
-frozen = total - trainable
-print(f'model type: {model.model_type}')
-if MODEL_TYPE == 'retinanet':
-    print(f'  architecture: RetinaNet ResNet50 FPN v2 (pretrained on COCO)')
-    print(f'  preprocessing: HSV mask + Sobel edge detection on HSV')
-    print(f'  backbone: ResNet50 + FPN (frozen, pretrained on COCO)')
-    print(f'  detection heads: RetinaNet heads with built in focal loss')
-    print(f'  input size: 512x512 (larger view for more context)')
-elif MODEL_TYPE == 'pretrained_ssd':
-    print(f'  architecture: SSD300 VGG16 (pretrained on COCO)')
-    print(f'  preprocessing: HSV mask + Sobel edge detection on HSV')
-    print(f'  backbone: VGG16 (frozen, pretrained on COCO)')
-    print(f'  detection heads: SSD heads (classification head replaced for waldo)')
-    print(f'  input size: 300x300')
-else:
-    print(f'  architecture: Custom WaldoDetector')
-    print(f'  preprocessing: HSV mask + Sobel edge detection on HSV')
-    print(f'  backbone: MobileNetV2 (first 11 layers, frozen)')
-    print(f'  detection heads: 5 custom SSD blocks')
-    print(f'  input size: 256x256')
-print(f'')
-print(f'parameters:')
-print(f'  total:     {total:,}')
-print(f'  trainable: {trainable:,}')
-print(f'  frozen:    {frozen:,}')
-"
+$PYTHON src/print_summary.py model
 echo ""
 
 # step 4: clean old checkpoints so we start fresh
@@ -148,86 +116,7 @@ echo "  Step 6: Sanity check on trained model"
 echo "========================================"
 echo "checking if the model learned to distinguish waldo from background..."
 echo ""
-$PYTHON -c "
-import sys, os; sys.path.insert(0, 'src')
-import torch
-import torch.nn.functional as F
-from model import WaldoDetector, WaldoDetectorPretrained, WaldoDetectorRetinaNet
-from data_pipeline import get_dataloader
-from config import CHECKPOINTS_DIR, MODEL_TYPE
-
-if torch.cuda.is_available():
-    device = torch.device('cuda')
-elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-    device = torch.device('mps')
-else:
-    device = torch.device('cpu')
-
-cp = torch.load(os.path.join(CHECKPOINTS_DIR, 'best_model.pth'), map_location=device, weights_only=False)
-model_type = cp.get('model_type', MODEL_TYPE)
-
-if model_type == 'retinanet':
-    model = WaldoDetectorRetinaNet().to(device)
-elif model_type == 'pretrained_ssd':
-    model = WaldoDetectorPretrained().to(device)
-else:
-    model = WaldoDetector().to(device)
-
-model.load_state_dict(cp['model_state_dict'])
-model.eval()
-model.model_type = model_type
-
-# check training tiles (should have high confidence on positive tiles)
-loader = get_dataloader(split='train', tile_size=256, batch_size=32)
-pos_confs = []
-neg_confs = []
-
-with torch.no_grad():
-    for batch_idx, (images, labels, bboxes) in enumerate(loader):
-        if batch_idx >= 5: break
-        images = images.to(device)
-
-        if model_type in ('pretrained_ssd', 'retinanet'):
-            detections = model(images)
-            for i in range(len(labels)):
-                det = detections[i]
-                waldo_mask = det['labels'] == 1
-                scores = det['scores'][waldo_mask]
-                conf = scores.max().item() if scores.shape[0] > 0 else 0.0
-                if labels[i].item() == 1:
-                    pos_confs.append(conf)
-                else:
-                    neg_confs.append(conf)
-        else:
-            locs, cls_scores, anchors = model(images)
-            probs = F.softmax(cls_scores, dim=2)
-            max_probs = probs[:, :, 1].max(dim=1).values
-            for i in range(len(labels)):
-                if labels[i].item() == 1:
-                    pos_confs.append(max_probs[i].item())
-                else:
-                    neg_confs.append(max_probs[i].item())
-
-avg_pos = sum(pos_confs) / len(pos_confs) if pos_confs else 0
-avg_neg = sum(neg_confs) / len(neg_confs) if neg_confs else 0
-max_pos = max(pos_confs) if pos_confs else 0
-max_neg = max(neg_confs) if neg_confs else 0
-
-print(f'on training tiles (first 5 batches):')
-print(f'  positive tiles ({len(pos_confs)} tiles): avg confidence = {avg_pos:.4f}, max = {max_pos:.4f}')
-print(f'  negative tiles ({len(neg_confs)} tiles): avg confidence = {avg_neg:.4f}, max = {max_neg:.4f}')
-print(f'  separation ratio: {avg_pos / max(avg_neg, 0.0001):.1f}x')
-print(f'')
-
-if avg_pos > avg_neg * 2:
-    print(f'  the model shows higher confidence on positive tiles (good sign)')
-elif len(pos_confs) == 0:
-    print(f'  no positive tiles seen in these batches (try more batches)')
-else:
-    print(f'  WARNING: positive and negative tiles have similar confidence')
-    print(f'  the model may not have learned to detect waldo properly')
-    print(f'  consider training for more epochs')
-"
+$PYTHON src/sanity_check.py
 echo ""
 
 # step 7: run full evaluation
@@ -241,38 +130,7 @@ echo ""
 echo "========================================"
 echo "  Step 8: Run summary"
 echo "========================================"
-$PYTHON -c "
-import sys, os, json; sys.path.insert(0, 'src')
-from config import CHECKPOINTS_DIR, MODEL_TYPE, NUM_EPOCHS
-
-# load results if they exist
-results_path = os.path.join('results', 'evaluation_results.json')
-if os.path.exists(results_path):
-    with open(results_path) as f:
-        results = json.load(f)
-    m = results['metrics']
-    model_names = {'retinanet': 'RetinaNet ResNet50 FPN', 'pretrained_ssd': 'pretrained SSD300', 'custom_ssd': 'custom WaldoDetector'}
-    print(f'model type: {model_names.get(MODEL_TYPE, MODEL_TYPE)}')
-    print(f'epochs trained: {NUM_EPOCHS}')
-    print(f'')
-    print(f'test set results:')
-    print(f'  accuracy:  {m[\"accuracy\"]:.4f}')
-    print(f'  precision: {m[\"precision\"]:.4f}')
-    print(f'  recall:    {m[\"recall\"]:.4f}')
-    print(f'  f1 score:  {m[\"f1\"]:.4f}')
-    print(f'  true positives:  {m[\"tp\"]}')
-    print(f'  false positives: {m[\"fp\"]}')
-    print(f'  true negatives:  {m[\"tn\"]}')
-    print(f'  false negatives: {m[\"fn\"]}')
-    print(f'')
-    print(f'confidence stats:')
-    print(f'  avg positive tile: {results[\"avg_confidence_positive\"]:.4f}')
-    print(f'  avg negative tile: {results[\"avg_confidence_negative\"]:.4f}')
-    print(f'  max positive tile: {results[\"max_confidence_positive\"]:.4f}')
-    print(f'  max negative tile: {results[\"max_confidence_negative\"]:.4f}')
-else:
-    print('no evaluation results found')
-"
+$PYTHON src/print_summary.py results
 echo ""
 
 echo "========================================"

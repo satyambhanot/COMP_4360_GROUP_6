@@ -28,27 +28,17 @@ import torch.nn.functional as F
 
 from model import create_model
 from data_pipeline import get_dataloader
+from utils import get_device, format_targets
 from config import (
     LEARNING_RATE, NUM_EPOCHS, BATCH_SIZE,
-    CHECKPOINTS_DIR, INPUT_SIZE,
-    MODEL_TYPE,
-    PRETRAINED_SSD_INPUT_SIZE, RETINANET_INPUT_SIZE,
+    CHECKPOINTS_DIR, MODEL_TYPE,
     LR_SCHEDULER_PATIENCE, LR_SCHEDULER_FACTOR,
     EARLY_STOPPING_PATIENCE,
     WEIGHT_DECAY,
     FOCAL_LOSS_GAMMA, FOCAL_LOSS_ALPHA
 )
 
-# check what hardware we have available
-# cuda is for nvidia gpus (like the GTX 1080 Ti we train on)
-# mps is for apple silicon (M1/M2 macs) which also has gpu acceleration
-# if neither is available we fall back to cpu which is slower but works
-if torch.cuda.is_available():
-    device = torch.device("cuda")
-elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-    device = torch.device("mps")
-else:
-    device = torch.device("cpu")
+device = get_device()
 print(f"using device: {device}")
 
 def bbox_to_center(bbox):
@@ -143,41 +133,6 @@ def focal_loss_weight(loss_tensor, gamma=FOCAL_LOSS_GAMMA):
     focal_weight = (1.0 - pt) ** gamma
     return (focal_weight * loss_tensor).mean()
 
-
-def format_targets(labels, bboxes, device):
-    # converts our dataloader output into the format torchvision detection models expect
-    # both SSD and RetinaNet use the same dict format:
-    #   "boxes": tensor of shape [num_objects, 4] in [xmin, ymin, xmax, ymax] format
-    #   "labels": tensor of shape [num_objects] with class labels (1 for waldo)
-    #
-    # for positive tiles: one box and one label
-    # for negative tiles: empty tensors (no objects)
-    #
-    # we scale the bboxes from our tile size (256) to whatever the model expects
-    # SSD wants 300x300, RetinaNet wants 800x800
-
-    if MODEL_TYPE == "retinanet":
-        scale = RETINANET_INPUT_SIZE / INPUT_SIZE
-    else:
-        scale = PRETRAINED_SSD_INPUT_SIZE / INPUT_SIZE
-    targets = []
-
-    for i in range(len(labels)):
-        if labels[i].item() == 1:
-            # positive tile: waldo is here
-            # scale the bbox coordinates from 256 space to 300 space
-            box = bboxes[i].unsqueeze(0).to(device) * scale
-            label = torch.tensor([1], dtype=torch.long, device=device)
-            targets.append({"boxes": box, "labels": label})
-        else:
-            # negative tile: no waldo
-            # torchvision expects empty tensors not zeros
-            targets.append({
-                "boxes": torch.zeros(0, 4, device=device),
-                "labels": torch.zeros(0, dtype=torch.long, device=device)
-            })
-
-    return targets
 
 
 def compute_loss(locs, cls_scores, anchors, labels, bboxes):

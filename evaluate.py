@@ -25,6 +25,7 @@ from torchvision import transforms
 from model import WaldoDetector, WaldoDetectorPretrained, WaldoDetectorRetinaNet
 from data_pipeline import get_dataloader
 from nms import apply_nms
+from utils import get_device
 from config import (
     CHECKPOINTS_DIR, BATCH_SIZE, INPUT_SIZE,
     IMAGENET_MEAN, IMAGENET_STD, RAW_IMAGES,
@@ -37,14 +38,7 @@ from pre_processing import ApplyHSVMask
 # where we save all the output images and results
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), "results")
 
-# check what hardware we have available
-# supports nvidia gpu (cuda), apple silicon gpu (mps), or cpu
-if torch.cuda.is_available():
-    device = torch.device("cuda")
-elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-    device = torch.device("mps")
-else:
-    device = torch.device("cpu")
+device = get_device()
 print(f"using device: {device}")
 
 

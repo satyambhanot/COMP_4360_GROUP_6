@@ -961,14 +961,34 @@ def run_demo(model, device, image_path=None):
     print(f"saved demo image to {demo_path}")
 
 
-if __name__ == "__main__":
-    # make sure the results directory exists
+def run_evaluation(output_dir=None, checkpoint_dir=None):
+    # main evaluation function that can be called from experiment scripts
+    # output_dir: where to save plots and results (defaults to RESULTS_DIR)
+    # checkpoint_dir: where to load the trained model from (defaults to CHECKPOINTS_DIR)
+    # returns: metrics dict
+
+    global RESULTS_DIR
+    original_results_dir = RESULTS_DIR
+    if output_dir is not None:
+        RESULTS_DIR = output_dir
+
     os.makedirs(RESULTS_DIR, exist_ok=True)
 
     # load the trained model
+    if checkpoint_dir is not None:
+        # temporarily override CHECKPOINTS_DIR for loading
+        import config as cfg
+        original_ckpt_dir = cfg.CHECKPOINTS_DIR
+        cfg.CHECKPOINTS_DIR = checkpoint_dir
+
     model = load_model()
+
+    if checkpoint_dir is not None:
+        cfg.CHECKPOINTS_DIR = original_ckpt_dir
+
     if model is None:
-        exit()
+        RESULTS_DIR = original_results_dir
+        return None
 
     # load the test data
     print("\nloading test data...")
@@ -976,7 +996,6 @@ if __name__ == "__main__":
     print(f"  test set: {len(test_loader.dataset)} tiles")
 
     # run predictions on every test tile and measure how long it takes
-    # inference speed is useful for the report to show practical performance
     print("\nrunning predictions on test set...")
     inference_start = time.time()
     predictions, labels, confidences, nms_results = run_predictions(model, test_loader, device)
@@ -999,47 +1018,46 @@ if __name__ == "__main__":
     print("\nsaving results to json...")
     save_results(metrics, confidences, labels, best_threshold, best_f1, image_metrics, inference_time, num_tiles)
 
-    # plot the confidence distribution
+    # generate all plots
     print("\nplotting confidence distribution...")
     plot_confidence_distribution(confidences, labels)
 
-    # plot precision vs recall curve for the report
     print("\nplotting precision recall curve...")
     plot_precision_recall_curve(confidences, labels)
 
-    # plot confusion matrix as a heatmap image
     print("\nplotting confusion matrix...")
     plot_confusion_matrix(predictions, labels)
 
-    # plot F1, precision, and recall vs confidence threshold
-    # shows the tradeoff and the best threshold to use
     print("\nplotting f1 vs threshold curve...")
     plot_f1_vs_threshold(confidences, labels)
 
-    # plot the ROC curve with AUC
-    # standard evaluation metric the professor will expect
     print("\nplotting ROC curve...")
     plot_roc_curve(confidences, labels)
 
-    # per image detection summary table
-    # shows which images the model found waldo in and which it struggled with
     print("\nplotting per image summary...")
     plot_per_image_summary(predictions, labels, test_loader.dataset)
 
-    # plot training curves if we have the history
     print("\nplotting training curves...")
     plot_training_curves()
 
-    # save sample visualization images
     print("\nvisualizing sample tiles...")
     visualize_samples(model, test_loader, device)
 
-    # run the full image demo on multiple images
     print("\nrunning full image demo...")
     raw_images = sorted(os.listdir(RAW_IMAGES))
-    demo_count = min(3, len(raw_images)) # demo on up to 3 images
+    demo_count = min(3, len(raw_images))
     for i in range(demo_count):
         img_path = os.path.join(RAW_IMAGES, raw_images[i])
         run_demo(model, device, image_path=img_path)
 
-    print("\nevaluation complete! check the results/ folder for all outputs")
+    print(f"\nevaluation complete! check {RESULTS_DIR}/ for all outputs")
+
+    # restore the original RESULTS_DIR
+    RESULTS_DIR = original_results_dir
+
+    return metrics
+
+
+# when run directly (python evaluate.py), use the default paths
+if __name__ == "__main__":
+    run_evaluation()

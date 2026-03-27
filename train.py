@@ -409,15 +409,24 @@ def validate(model, dataloader, device):
     return avg_loss, avg_cls, avg_loc
 
 
-if __name__ == "__main__":
+def run_training(checkpoint_dir=None, model_override=None):
+    # main training function that can be called from experiment scripts
+    # checkpoint_dir: where to save model weights (defaults to CHECKPOINTS_DIR from config)
+    # model_override: pass a pre-created model instead of using create_model()
+    # returns: the trained model, best validation loss, and training history
+
+    save_dir = checkpoint_dir or CHECKPOINTS_DIR
+    os.makedirs(save_dir, exist_ok=True)
+
     print("starting training...")
     start_time = time.time()
 
     # create the model and move it to the gpu
-    # create_model checks the config flag and returns either our custom WaldoDetector
-    # or the pretrained SSD300 VGG16 from torchvision
-    model = create_model()
-    model = model.to(device)
+    if model_override is not None:
+        model = model_override.to(device)
+    else:
+        model = create_model()
+        model = model.to(device)
     model_type = model.model_type
     print(f"model type: {model_type}")
     print(f"model created with {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable parameters")
@@ -480,7 +489,7 @@ if __name__ == "__main__":
     history = {"train_loss": [], "val_loss": [], "train_cls": [], "val_cls": [], "train_loc": [], "val_loc": []}
 
     # make sure the checkpoints directory exists
-    os.makedirs(CHECKPOINTS_DIR, exist_ok=True)
+    os.makedirs(save_dir, exist_ok=True)
 
     # the main training loop
     for epoch in range(NUM_EPOCHS):
@@ -520,7 +529,7 @@ if __name__ == "__main__":
                 "model_state_dict": model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
                 "val_loss": val_loss,
-            }, os.path.join(CHECKPOINTS_DIR, "best_model.pth"))
+            }, os.path.join(save_dir, "best_model.pth"))
             saved = " [saved best]"
         else:
             epochs_without_improvement += 1
@@ -532,7 +541,7 @@ if __name__ == "__main__":
             "model_state_dict": model.state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
             "val_loss": val_loss,
-        }, os.path.join(CHECKPOINTS_DIR, "last_model.pth"))
+        }, os.path.join(save_dir, "last_model.pth"))
 
         # print a summary for this epoch including the current learning rate
         # flush=True forces the output to show up immediately even when piped through tee
@@ -550,7 +559,7 @@ if __name__ == "__main__":
             break
 
     # save the training history to a json file so evaluate.py can plot curves
-    history_path = os.path.join(CHECKPOINTS_DIR, "training_history.json")
+    history_path = os.path.join(save_dir, "training_history.json")
     with open(history_path, "w") as f:
         json.dump(history, f, indent=2)
 
@@ -558,5 +567,12 @@ if __name__ == "__main__":
     total_time = time.time() - start_time
     print(f"\ntraining complete in {total_time:.1f} seconds")
     print(f"best validation loss: {best_val_loss:.4f} at epoch {best_epoch}")
-    print(f"checkpoints saved to {CHECKPOINTS_DIR}")
+    print(f"checkpoints saved to {save_dir}")
     print(f"training history saved to {history_path}")
+
+    return model, best_val_loss, history
+
+
+# when run directly (python train.py), use the default config paths
+if __name__ == "__main__":
+    run_training()

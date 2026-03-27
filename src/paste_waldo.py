@@ -1,4 +1,4 @@
-# dataset_creation_tool.py
+# paste_waldo.py
 # generates synthetic training images by pasting waldo cutouts onto random backgrounds
 # gabe collected 10 waldo cutouts (transparent PNGs) and 100 background images
 # this script combines them randomly to create new training data
@@ -19,7 +19,7 @@
 # existing image files (1.jpg through 124G.jpg)
 #
 # run this once, commit the results, then everyone has the same dataset
-# usage: python src/dataset_creation_tool.py
+# usage: python src/paste_waldo.py
 
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
@@ -54,11 +54,11 @@ VALID_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp'}
 
 # paths relative to project root
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BG_PATH = os.path.join(PROJECT_ROOT, "data", "data_creation", "backgrounds")
-WALDO_PATH = os.path.join(PROJECT_ROOT, "data", "data_creation", "waldos")
+BG_PATH = os.path.join(PROJECT_ROOT, "data", "assets", "backgrounds")
+WALDO_PATH = os.path.join(PROJECT_ROOT, "data", "assets", "waldos")
 OUTPUT_IMAGES = os.path.join(PROJECT_ROOT, "data", "raw", "images")
 OUTPUT_ANNOTATIONS = os.path.join(PROJECT_ROOT, "data", "raw", "annotations")
-VERIFICATION_PATH = os.path.join(PROJECT_ROOT, "data", "data_creation")
+VERIFICATION_PATH = os.path.join(PROJECT_ROOT, "data", "assets")
 
 
 def get_image_files(directory):

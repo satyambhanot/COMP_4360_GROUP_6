@@ -1,4 +1,4 @@
-# augment_images.py
+# augment.py
 # this script generates extra positive tiles by randomly cropping around waldo
 # in the source images. the idea is simple: instead of only getting tiles from
 # a fixed grid (where waldo always lands in the same 1-2 tiles per image),
@@ -25,9 +25,6 @@ import os
 import random
 from PIL import Image
 import xml.etree.ElementTree as ET
-
-import sys
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 from config import (
     RAW_IMAGES, RAW_ANNOTATIONS, PROCESSED,

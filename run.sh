@@ -230,23 +230,16 @@ else:
 "
 echo ""
 
-# step 7: run confidence test on test tiles
+# step 7: run full evaluation
 echo "========================================"
-echo "  Step 7: Confidence test on test tiles"
-echo "========================================"
-$PYTHON test_confidence.py
-echo ""
-
-# step 8: run full evaluation
-echo "========================================"
-echo "  Step 8: Full evaluation"
+echo "  Step 7: Full evaluation"
 echo "========================================"
 $PYTHON evaluate.py
 echo ""
 
-# step 9: quick summary of the run
+# step 8: quick summary of the run
 echo "========================================"
-echo "  Step 9: Run summary"
+echo "  Step 8: Run summary"
 echo "========================================"
 $PYTHON -c "
 import sys, os, json; sys.path.insert(0, 'src')

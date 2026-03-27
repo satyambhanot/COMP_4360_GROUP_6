@@ -1,5 +1,5 @@
-# ConcatenateAnchors.py
-# this file handles anchor boxes for our SSD detector
+# anchors.py
+# this file handles anchor boxes for our custom SSD detector
 # each SSD head makes predictions at different grid sizes (16x16, 8x8, 4x4, etc)
 # at every grid position we place anchor boxes of different sizes
 # the SSD heads predict offsets from these anchors, not absolute positions

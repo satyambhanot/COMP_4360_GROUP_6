@@ -168,9 +168,7 @@ def run_pipeline(): # the main function that does everything, tiles all images a
     # this takes random 256x256 patches centered around waldo from the larger images
     # each patch has waldo at a different position with different surrounding context
     # we import it here so the augmented tiles get included in the same splits
-    import sys
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from augment_images import run_augmentation
+    from augment import run_augmentation
     augmented_tiles = run_augmentation()
     all_tiles.extend(augmented_tiles)
 

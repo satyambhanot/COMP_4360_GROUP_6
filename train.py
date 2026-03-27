@@ -26,6 +26,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 import torch
 import torch.nn.functional as F
 
+# standard pytorch performance flags
+# cudnn.benchmark auto tunes the best convolution algorithm for our fixed input size
+# this gives 10-20% speedup on all conv layers since the tuned algo gets reused every batch
+# only works when input dimensions dont change between batches (ours are always 256x256)
+torch.backends.cudnn.benchmark = True
+# disable autograd anomaly detection since were not debugging NaN issues
+# this removes per operation checking overhead
+torch.autograd.set_detect_anomaly(False)
+
 from model import create_model
 from data_pipeline import get_dataloader
 from utils import get_device, format_targets
@@ -243,12 +252,13 @@ def train_one_epoch(model, dataloader, optimizer, device, scaler=None):
 
     total_batches = len(dataloader)
     for batch_idx, (images, labels, bboxes) in enumerate(dataloader):
-        # move everything to the gpu (or cpu if no gpu)
-        images = images.to(device)
-        labels = labels.to(device)
-        bboxes = bboxes.to(device)
+        # non_blocking=True overlaps CPU to GPU transfer with GPU computation
+        # the GPU can keep processing the current batch while the next batch transfers
+        images = images.to(device, non_blocking=True)
+        labels = labels.to(device, non_blocking=True)
+        bboxes = bboxes.to(device, non_blocking=True)
 
-        # print progress every 50 batches so gabe can see its still running
+        # print progress so gabe can see its still running
         if (batch_idx + 1) % 100 == 0 or batch_idx == 0:
             print(f"  batch {batch_idx + 1}/{total_batches}", flush=True)
 
@@ -330,9 +340,9 @@ def validate(model, dataloader, device):
 
     with torch.no_grad():
         for images, labels, bboxes in dataloader:
-            images = images.to(device)
-            labels = labels.to(device)
-            bboxes = bboxes.to(device)
+            images = images.to(device, non_blocking=True)
+            labels = labels.to(device, non_blocking=True)
+            bboxes = bboxes.to(device, non_blocking=True)
 
             with torch.amp.autocast("cuda", enabled=use_amp):
                 if MODEL_TYPE in ("pretrained_ssd", "retinanet"):

@@ -153,7 +153,7 @@ def run_predictions(model, dataloader, device):
 
     with torch.no_grad():
         for images, labels, bboxes in dataloader:
-            images = images.to(device)
+            images = images.to(device, non_blocking=True)
 
             # HSV pre filter: check each tile for red/white pixels before running the model
             # compute the HSV mask and see what fraction of pixels light up
@@ -818,7 +818,7 @@ def visualize_samples(model, dataloader, device, num_samples=5):
 
     with torch.no_grad():
         for images, labels, bboxes in dataloader:
-            images = images.to(device)
+            images = images.to(device, non_blocking=True)
 
             # get detections based on model type
             if hasattr(model, "model_type") and model.model_type in ("pretrained_ssd", "retinanet"):
@@ -906,7 +906,7 @@ def run_demo(model, device, image_path=None):
 
         # transform tiles to tensors and stack into a batch
         tile_tensors = torch.stack([transform(t) for t in batch_tiles])
-        tile_tensors = tile_tensors.to(device)
+        tile_tensors = tile_tensors.to(device, non_blocking=True)
 
         with torch.no_grad():
             if hasattr(model, "model_type") and model.model_type in ("pretrained_ssd", "retinanet"):

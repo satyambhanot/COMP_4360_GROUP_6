@@ -9,3 +9,4 @@ checkpoints/*
 !checkpoints/.gitkeep
 
 results/
+saved_results/

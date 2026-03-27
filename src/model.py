@@ -343,7 +343,7 @@ class WaldoDetectorRetinaNet(nn.Module):
     #   1. Feature Pyramid Network: detects objects at multiple scales by combining
     #      features from different backbone layers. SSD only uses features from
     #      specific layers which means it can miss objects at certain sizes
-    #   2. larger input: we feed 800x800 instead of SSD's 300x300
+    #   2. larger input: we feed 512x512 instead of SSD's 300x300
     #      more pixels means more context around waldo, which helps the model
     #      tell him apart from other characters in the cluttered scenes
     #   3. ResNet50 backbone: deeper and more powerful than VGG16
@@ -444,8 +444,8 @@ class WaldoDetectorRetinaNet(nn.Module):
         # step 4: scale to 0-255 range (torchvision expects this)
         x = x * 255.0
 
-        # step 5: resize to RetinaNet's input size (800x800)
-        # this is the big advantage over SSD300: we see 7x more pixels
+        # step 5: resize to RetinaNet's input size (512x512)
+        # this is the big advantage over SSD300: we see ~3x more pixels
         # which means more context around waldo to help identify him
         x = F.interpolate(x, size=(RETINANET_INPUT_SIZE, RETINANET_INPUT_SIZE),
                           mode="bilinear", align_corners=False)

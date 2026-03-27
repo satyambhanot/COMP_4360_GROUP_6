@@ -31,7 +31,7 @@ def format_targets(labels, bboxes, device):
     # we scale the bboxes from our tile size (256) to whatever the model expects
     # SSD wants 300x300, RetinaNet wants 512x512
     #
-    # this function is used in both train.py and evaluate_ablation experiments
+    # this function is used in both train.py and ablation experiment scripts
     # so we keep it here instead of duplicating it
 
     if MODEL_TYPE == "retinanet":

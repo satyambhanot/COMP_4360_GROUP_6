@@ -71,7 +71,7 @@ SSD_KERNEL_SIZE = 3
 #     but limited to 300x300 input which means tiny tiles with no context
 #
 #   "retinanet": RetinaNet with ResNet50 + FPN pretrained on COCO from torchvision
-#     our best performing model. handles larger input (800x800) so the model
+#     our best performing model. handles larger input (512x512) so the model
 #     sees more context around waldo. feature pyramid network detects at multiple
 #     scales. focal loss is built into the architecture (from the RetinaNet paper)
 #     this is the natural evolution of SSD in the one stage detector lineage
@@ -79,11 +79,6 @@ SSD_KERNEL_SIZE = 3
 # change MODEL_TYPE to switch between them
 # all three use our HSV + Sobel preprocessing which is our main contribution
 MODEL_TYPE = "retinanet" # "custom_ssd", "pretrained_ssd", or "retinanet"
-
-# backward compatible flag so existing code that checks USE_PRETRAINED_SSD still works
-# during the migration to MODEL_TYPE we keep this around
-# eventually all code should check MODEL_TYPE directly
-USE_PRETRAINED_SSD = MODEL_TYPE == "pretrained_ssd"
 
 # model specific input sizes
 # SSD300 expects exactly 300x300, thats baked into its architecture

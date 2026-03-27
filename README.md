@@ -18,29 +18,43 @@ COMP_4360_GROUP_6/
 ├── README.md
 ├── .gitignore
 ├── requirements.txt
-├── run.sh                        # runs the entire pipeline start to finish
-├── train.py                      # entry point for training the model
+├── run.sh                        # runs the pipeline for the current MODEL_TYPE
+├── train.py                      # training (importable + standalone)
 ├── evaluate.py                   # evaluation with 10+ output plots
-├── augment_images.py             # generates random crop tiles around waldo
-├── evaluate_ablation.py          # ablation studies (preprocessing impact)
-├── compare_results.py            # cross model comparison charts
-├── train_yolo.py                 # standalone YOLOv8 comparison experiment
-├── test_confidence.py            # quick confidence check on test tiles
+├── train_yolo.py                 # standalone YOLOv8 comparison
+│
+├── experiments/                  # one script per experiment, isolated results
+│   ├── base_experiment.py        # shared experiment template
+│   ├── run_retinanet.py          # trains + evaluates RetinaNet
+│   ├── run_pretrained_ssd.py     # trains + evaluates SSD300 VGG16
+│   ├── run_custom_ssd.py         # trains + evaluates custom SSD
+│   ├── run_yolo.py               # trains + evaluates YOLOv8
+│   ├── run_ablation.py           # preprocessing ablation (3 variants)
+│   ├── run_ablation_variant.py   # single ablation variant (called by above)
+│   └── generate_report.py        # comparison charts from all results
 │
 ├── src/
 │   ├── config.py                 # all settings in one place
+│   ├── utils.py                  # shared utilities (device, format_targets)
+│   ├── model.py                  # WaldoDetector + WaldoDetectorPretrained + WaldoDetectorRetinaNet
 │   ├── data_pipeline.py          # tiling, dataset, dataloader, augmentation
 │   ├── pre_processing.py         # HSV mask, Sobel edges, preprocess_batch
-│   ├── ssd.py                    # single SSD detection block (custom model)
-│   ├── ConcatenateAnchors.py     # anchor generation and prediction reshaping
-│   ├── model.py                  # WaldoDetector + WaldoDetectorPretrained
-│   └── nms.py                    # non maximum suppression
+│   ├── augment.py                # random crop augmentation around waldo
+│   ├── paste_waldo.py            # synthetic waldo on backgrounds generator
+│   ├── ssd_block.py              # single SSD detection block (custom model)
+│   ├── anchors.py                # anchor generation and prediction reshaping
+│   ├── nms.py                    # non maximum suppression
+│   ├── print_summary.py          # model summary and results printing
+│   └── sanity_check.py           # post training confidence check
 │
 ├── data/
 │   ├── raw/
-│   │   ├── images/               # 258 wheres waldo images (19 original + 239 variants)
-│   │   └── annotations/          # 258 XML bounding box annotations (Pascal VOC format)
-│   └── processed/                # generated tiles and splits.json
+│   │   ├── images/               # 458 images (258 original + 200 generated)
+│   │   └── annotations/          # 458 XML bounding box annotations
+│   ├── assets/                   # waldo cutouts and background images
+│   │   ├── waldos/               # 10 waldo PNGs with transparent backgrounds
+│   │   └── backgrounds/          # 100 background images for pasting
+│   └── processed/                # generated tiles and splits.json (runtime)
 │
 ├── checkpoints/                  # saved model weights and training history
 └── results/                      # evaluation outputs, plots, and run log
@@ -90,7 +104,7 @@ Key settings:
 
 ### Step 2: Data Pipeline (src/data_pipeline.py)
 
-Takes the 258 raw images and their XML annotations and chops each image into 256x256 tiles using 4 different grid offsets (0,0), (128,0), (0,128), (128,128). This means Waldo falls on different tile boundaries in each grid, giving us more diverse positive tiles. Also runs random crop augmentation (augment_images.py) to generate additional positive tiles with Waldo at random positions.
+Takes the 258 raw images and their XML annotations and chops each image into 256x256 tiles using 4 different grid offsets (0,0), (128,0), (0,128), (128,128). This means Waldo falls on different tile boundaries in each grid, giving us more diverse positive tiles. Also runs random crop augmentation (src/augment.py) to generate additional positive tiles with Waldo at random positions.
 
 Splits tiles into train/val/test sets by image id (70/15/15) so the model never sees tiles from the same image in both training and testing. This prevents data leaking where the model memorizes background patterns instead of learning what Waldo looks like.
 
@@ -121,7 +135,7 @@ The model gets 5 channels total: 3 RGB + 1 HSV mask + 1 Sobel edges. A learnable
 
 **Pretrained SSD:** Uses the original SSD300 detection heads from COCO. We replace only the classification head from 91 classes to 2 (Waldo + background). The box regression head stays the same. Weight decay (L2 regularization) prevents overfitting.
 
-**Custom SSD (src/ssd.py):** 5 custom SSD blocks chained together. Each block predicts bounding box offsets and class scores at its scale, then pools the feature map to half size for the next block:
+**Custom SSD (src/ssd_block.py):** 5 custom SSD blocks chained together. Each block predicts bounding box offsets and class scores at its scale, then pools the feature map to half size for the next block:
 - Head 1: 16x16 (1024 anchors)
 - Head 2: 8x8 (256 anchors)
 - Head 3: 4x4 (64 anchors)
@@ -129,7 +143,7 @@ The model gets 5 channels total: 3 RGB + 1 HSV mask + 1 Sobel edges. A learnable
 - Head 5: 1x1 (4 anchors)
 - Total: 1364 anchors
 
-### Step 6: Anchor Generation (src/ConcatenateAnchors.py)
+### Step 6: Anchor Generation (src/anchors.py)
 
 Generates anchor box positions at each grid size. Reshapes the raw SSD output from convolution format into flat lists of predictions. Combines predictions from all heads into two final tensors: all bounding boxes [batch, total_anchors, 4] and all class scores [batch, total_anchors, 2]. Only used for the custom SSD since torchvision handles this internally for the pretrained model.
 
@@ -193,7 +207,7 @@ We tried three architectures during this project, progressing from simple to mor
 |---|---|---|---|
 | Backbone | ResNet50 + FPN (COCO) | VGG16 (COCO) | MobileNetV2 (ImageNet) |
 | Detection heads | RetinaNet FPN heads | SSD300 heads | 5 custom SSD blocks |
-| Input size | 800x800 | 300x300 | 256x256 |
+| Input size | 512x512 | 300x300 | 256x256 |
 | Focal loss | Built in | Manual (added by us) | Manual |
 | Backbone training | Frozen | Frozen | Frozen |
 | Optimizer | SGD (momentum 0.9) | SGD (momentum 0.9) | Adam |
@@ -204,7 +218,7 @@ We also compare against YOLOv8 (via `train_yolo.py`) as a state of the art refer
 
 ## Ablation Studies
 
-`evaluate_ablation.py` runs two ablation studies:
+`experiments/run_ablation.py` runs the ablation study:
 
 1. **Preprocessing impact**: trains the model three ways (RGB only, RGB + HSV, RGB + HSV + Sobel) to measure how much our custom preprocessing channels contribute
 2. **Architecture comparison**: loads saved results from each model type (custom SSD, pretrained SSD, RetinaNet, YOLOv8) and generates side by side comparison charts

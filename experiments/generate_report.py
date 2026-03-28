@@ -59,12 +59,29 @@ def find_all_results():
 
 
 def find_ablation_results():
-    # looks for ablation results in saved_results/ablation/comparison/
-    ablation_path = os.path.join(SAVED_RESULTS, "ablation", "comparison", "ablation_results.json")
-    if os.path.exists(ablation_path):
-        with open(ablation_path) as f:
-            return json.load(f)
-    return None
+    # reads ablation results from each variants individual metrics.json
+    # not from the old combined ablation_results.json which may be stale
+    ablation_dir = os.path.join(SAVED_RESULTS, "ablation")
+    if not os.path.exists(ablation_dir):
+        return None
+
+    variants = ["full_pipeline", "hsv_only", "rgb_only"]
+    results = []
+
+    for variant in variants:
+        metrics_path = os.path.join(ablation_dir, variant, "metrics.json")
+        if os.path.exists(metrics_path):
+            with open(metrics_path) as f:
+                data = json.load(f)
+            # normalize format
+            if "metrics" in data and isinstance(data["metrics"], dict):
+                metrics = data["metrics"]
+            else:
+                metrics = data
+            results.append({"name": variant, "metrics": metrics})
+            print(f"  ablation {variant}: F1={metrics.get('f1', 0):.4f}")
+
+    return results if len(results) > 0 else None
 
 
 def plot_model_comparison(models):

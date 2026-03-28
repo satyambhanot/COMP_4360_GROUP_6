@@ -1,3 +1,4 @@
+"""
 # pre_processing.py
 # takes image tiles and adds extra channels that help the model spot waldo
 # we concatenate the original RGB with a HSV color mask and sobel edges of the HSV mask
@@ -12,20 +13,19 @@
 #
 # we kept the old ApplySobelEdgeDetection function around in case we want to
 # compare the two approaches in our ablation studies later
+"""
 
 import torch
 import torch.nn.functional as F
-from config import (
-    IMAGENET_MEAN, IMAGENET_STD,
-    RED_HUE_MAX, RED_HUE_MIN, RED_SAT_MIN, RED_VAL_MIN,
-    WHITE_SAT_MAX, WHITE_VAL_MIN
-)
+from config import *
 
-
-def RGBtoHSV(images): # converts normalized RGB images to HSV color space
-    # undo the ImageNet normalization first
-    # we use .to(images.device) so these tensors end up on the same device as the input
-    # without this it crashes on GPU because mean/std would be on CPU but images on GPU
+'''
+# converts normalized RGB images to HSV color space
+# undo the ImageNet normalization first
+# we use .to(images.device) so these tensors end up on the same device as the input
+# without this it crashes on GPU because mean/std would be on CPU but images on GPU
+'''
+def RGBtoHSV(images): 
     mean = torch.tensor(IMAGENET_MEAN).view(1, 3, 1, 1).to(images.device)
     std  = torch.tensor(IMAGENET_STD).view(1, 3, 1, 1).to(images.device)
     rgb  = (images * std + mean).clamp(0, 1)
@@ -55,7 +55,10 @@ def RGBtoHSV(images): # converts normalized RGB images to HSV color space
     return torch.stack([hue, sat, c_max], dim=1)  # [N, 3, H, W]
 
 
-def ApplyHSVMask(images): # binary mask that highlights red and white pixels (waldos stripes)
+'''
+# binary mask that highlights red and white pixels (waldos stripes)
+'''
+def ApplyHSVMask(images): 
     hsv = RGBtoHSV(images)
     h, s, v = hsv[:, 0, :, :], hsv[:, 1, :, :], hsv[:, 2, :, :]
 
@@ -67,9 +70,12 @@ def ApplyHSVMask(images): # binary mask that highlights red and white pixels (wa
     return combined
 
 
-def ApplySobelEdgeDetection(images): # edge detection, waldos stripes make strong horizontal edges
-    # undo normalization
-    # same device fix as RGBtoHSV, tensors need to be on the same device as input
+'''
+# edge detection, waldos stripes make strong horizontal edges
+# undo normalization
+# same device fix as RGBtoHSV, tensors need to be on the same device as input
+'''
+def ApplySobelEdgeDetection(images): 
     mean = torch.tensor(IMAGENET_MEAN).view(1, 3, 1, 1).to(images.device)
     std  = torch.tensor(IMAGENET_STD).view(1, 3, 1, 1).to(images.device)
     rgb  = (images * std + mean).clamp(0, 1)
@@ -101,6 +107,7 @@ def ApplySobelEdgeDetection(images): # edge detection, waldos stripes make stron
 
 def preprocess_batch(images): # takes [N, 3, 256, 256] and returns [N, 5, 256, 256]
     hsv_mask = ApplyHSVMask(images) # [N, 1, 256, 256] binary mask of red/white pixels
+    '''
 
     # instead of running sobel on the full grayscale image (which finds edges of everything)
     # we run it on the HSV mask so it only finds edges around red and white regions
@@ -109,6 +116,7 @@ def preprocess_batch(images): # takes [N, 3, 256, 256] and returns [N, 5, 256, 2
     # the sobel kernels are the standard ones defined by Irwin Sobel in 1968
     # sobel_x finds vertical edges, sobel_y finds horizontal edges
     # make sure sobel kernels are on the same device as the input images
+    '''
     sobel_x = torch.tensor([[-1, 0, 1],
                              [-2, 0, 2],
                              [-1, 0, 1]], dtype=torch.float32).view(1, 1, 3, 3).to(images.device)
@@ -122,10 +130,12 @@ def preprocess_batch(images): # takes [N, 3, 256, 256] and returns [N, 5, 256, 2
     gy = F.conv2d(hsv_mask, sobel_y, padding=1)
     sobel_of_hsv = torch.sqrt(gx ** 2 + gy ** 2) # [N, 1, 256, 256] edges of red/white regions
 
+    '''
     # stack RGB + HSV mask + sobel of HSV = 5 channels total
     # channel 1,2,3: the original RGB image
     # channel 4: where the red and white pixels are
     # channel 5: the edges around those red and white regions
+    '''
     return torch.cat([images, hsv_mask, sobel_of_hsv], dim=1)  # [N, 5, 256, 256]
 
 

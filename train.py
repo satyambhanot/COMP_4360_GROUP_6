@@ -1,3 +1,4 @@
+'''
 # train.py
 # this is the main training script, you run it from the project root
 # like: python train.py
@@ -14,56 +15,52 @@
 #
 # we train on a GTX 1080 Ti with 11GB VRAM
 # with batch size 24 and 256x256 tiles this fits comfortably
+'''
 
 import sys
 import os
 import time
 import json
 
-# add the src folder to the path so we can import our modules
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 import torch
 import torch.nn.functional as F
 
+'''
 # standard pytorch performance flags
 # cudnn.benchmark auto tunes the best convolution algorithm for our fixed input size
 # this gives 10-20% speedup on all conv layers since the tuned algo gets reused every batch
 # only works when input dimensions dont change between batches (ours are always 256x256)
+'''
 torch.backends.cudnn.benchmark = True
-# disable autograd anomaly detection since were not debugging NaN issues
-# this removes per operation checking overhead
-torch.autograd.set_detect_anomaly(False)
 
-from model import create_model
+torch.autograd.set_detect_anomaly(False) # removes per operation checking overhead
+
+from utils import create_model
 from data_pipeline import get_dataloader
-from utils import get_device, format_targets
-from config import (
-    LEARNING_RATE, NUM_EPOCHS, BATCH_SIZE,
-    CHECKPOINTS_DIR, MODEL_TYPE,
-    LR_SCHEDULER_PATIENCE, LR_SCHEDULER_FACTOR,
-    EARLY_STOPPING_PATIENCE,
-    WEIGHT_DECAY,
-    FOCAL_LOSS_GAMMA, FOCAL_LOSS_ALPHA
-)
+from utils import *
+from config import *
 
 device = get_device()
 print(f"using device: {device}")
 
 def bbox_to_center(bbox):
+    '''
     # converts a bounding box from [xmin, ymin, xmax, ymax] to [cx, cy, w, h]
     # our dataloader gives us bboxes in corner format
     # but anchors and SSD predictions use center format
+    '''
     xmin, ymin, xmax, ymax = bbox[0], bbox[1], bbox[2], bbox[3]
     cx = (xmin + xmax) / 2
     cy = (ymin + ymax) / 2
     w = xmax - xmin
     h = ymax - ymin
-    # use torch.stack instead of torch.tensor so it stays on the same device as the input
+
     return torch.stack([cx, cy, w, h])
 
 
-def compute_iou(box, anchors):
+    '''
     # computes intersection over union between one ground truth box and all anchors
     # box is [4] in [cx, cy, w, h] format
     # anchors is [num_anchors, 4] in [cx, cy, w, h] format
@@ -72,7 +69,8 @@ def compute_iou(box, anchors):
     # we need to convert to corner format first to compute the overlap
     # iou = area of overlap / area of union
     # this tells us how much two boxes overlap on a scale of 0 to 1
-
+    '''
+def compute_iou(box, anchors):
     # convert box to corners
     b_x1 = box[0] - box[2] / 2
     b_y1 = box[1] - box[3] / 2
@@ -98,10 +96,11 @@ def compute_iou(box, anchors):
     anchor_areas = anchors[:, 2] * anchors[:, 3]
     union_area = box_area + anchor_areas - inter_area
 
-    return inter_area / (union_area + 1e-6) # small epsilon to avoid division by zero
+    return inter_area / (union_area + 1e-6) 
 
 
 def encode_ground_truth(gt_box, anchor):
+    '''
     # this is the reverse of decode_predictions in nms.py
     # given a ground truth box and an anchor, compute what offsets the model should predict
     # the SSD paper (Liu et al, ECCV 2016) defines this encoding formula
@@ -115,17 +114,18 @@ def encode_ground_truth(gt_box, anchor):
     #   dy = (gt_cy minus anchor_cy) / anchor_h
     #   dw = log(gt_w / anchor_w)
     #   dh = log(gt_h / anchor_h)
+    '''
 
     dx = (gt_box[0] - anchor[0]) / (anchor[2] + 1e-6)
     dy = (gt_box[1] - anchor[1]) / (anchor[3] + 1e-6)
     dw = torch.log((gt_box[2] + 1e-6) / (anchor[2] + 1e-6))
     dh = torch.log((gt_box[3] + 1e-6) / (anchor[3] + 1e-6))
 
-    # make sure the returned tensor is on the same device as the inputs
     return torch.stack([dx, dy, dw, dh])
 
 
 def focal_loss_weight(loss_tensor, gamma=FOCAL_LOSS_GAMMA):
+    '''
     # applies focal loss weighting to an already computed loss
     # the idea: if the model is already confident about a prediction (low loss)
     # we reduce its contribution to the total loss
@@ -138,13 +138,78 @@ def focal_loss_weight(loss_tensor, gamma=FOCAL_LOSS_GAMMA):
     # for the standard focal loss formula FL = -alpha * (1-pt)^gamma * log(pt)
     # we approximate (1-pt)^gamma using the loss itself since loss = -log(pt)
     # so pt = exp(-loss) and (1-pt)^gamma = (1 - exp(-loss))^gamma
+    '''
     pt = torch.exp(-loss_tensor)
     focal_weight = (1.0 - pt) ** gamma
     return (focal_weight * loss_tensor).mean()
 
+def TrainOnImage(i,locs,num_anchors,total_cls_loss,total_loc_loss,num_positive,cls_scores, anchors, labels, bboxes):
+    img_locs = locs[i] # [1364, 4]
+    img_cls = cls_scores[i] # [1364, 2]
+    label = labels[i].item() # 0 or 1
 
+    '''
+        # create classification targets for every anchor
+        # on negative tiles: all anchors should predict background (class 0)
+        # on positive tiles: matched anchors predict waldo (class 1), rest predict background
+        '''
+    cls_targets = torch.zeros(num_anchors, dtype=torch.long, device=locs.device)
 
-def compute_loss(locs, cls_scores, anchors, labels, bboxes):
+    if label == 1:
+        '''
+        # this tile has waldo, convert the ground truth bbox to center format
+        # bboxes are already on the right device because we moved them in the training loop
+        '''
+        gt_box = bbox_to_center(bboxes[i])
+
+        ious = compute_iou(gt_box, anchors)
+        best_anchor_idx = ious.argmax().item()
+        '''
+
+        # also mark any anchor with IoU above 0.5 as positive
+        # this gives the model more positive examples to learn from
+        # instead of just the single best matching anchor
+        '''
+        positive_mask = ious > 0.5
+        positive_mask[best_anchor_idx] = True # make sure the best one is always included
+
+        # set classification targets for matched anchors to waldo (class 1)
+        cls_targets[positive_mask] = 1
+
+        '''
+        # compute localization loss only for the matched anchors
+        # we encode the ground truth as offsets from each matched anchor
+        # then compare against what the model predicted
+        '''
+        positive_indices = positive_mask.nonzero(as_tuple=True)[0]
+        num_positive += len(positive_indices)
+
+        if len(positive_indices) > 0:
+            for idx in positive_indices:
+            # encode the ground truth bbox as offsets from this anchor
+                target_offsets = encode_ground_truth(gt_box, anchors[idx])
+                predicted_offsets = img_locs[idx]
+
+                '''
+                # smooth L1 loss for bounding box regression
+                # this is the standard loss used in SSD and other object detectors
+                # its less sensitive to outliers than MSE loss
+                # torch.nn.functional.smooth_l1_loss is from pytorch
+                '''
+                total_loc_loss += F.smooth_l1_loss(predicted_offsets, target_offsets)
+
+        '''
+        # classification loss using focal cross entropy
+        # standard cross entropy treats every anchor equally but most anchors are
+        # easy background predictions. focal loss down weights those easy ones
+        # so the model focuses on the confusing anchors near waldo like characters
+        '''
+        ce_loss = F.cross_entropy(img_cls, cls_targets, reduction='none')
+        pt = torch.exp(-ce_loss)
+        focal_weight = FOCAL_LOSS_ALPHA * (1.0 - pt) ** FOCAL_LOSS_GAMMA
+        total_cls_loss += (focal_weight * ce_loss).mean()
+
+'''
     # computes the SSD loss for a batch of tiles
     # this follows the standard SSD training approach from the paper
     #
@@ -155,133 +220,54 @@ def compute_loss(locs, cls_scores, anchors, labels, bboxes):
     # bboxes: [N, 4] ground truth bboxes in [xmin, ymin, xmax, ymax] format
     #
     # returns the combined loss (cls_loss + loc_loss)
+'''
+def compute_loss(locs, cls_scores, anchors, labels, bboxes):
 
     batch_size = locs.shape[0]
     num_anchors = locs.shape[1]
 
     total_cls_loss = 0.0
-    # we initialize loc_loss as a tensor on the same device as the predictions
-    # so the return type is always consistent whether or not we had positive tiles
-    # if we used a plain float (0.0) it would cause issues when we call .item() later
+
     total_loc_loss = torch.tensor(0.0, device=locs.device)
     num_positive = 0 # count how many positive anchors we found across the batch
 
     for i in range(batch_size):
-        img_locs = locs[i] # [1364, 4]
-        img_cls = cls_scores[i] # [1364, 2]
-        label = labels[i].item() # 0 or 1
-
-        # create classification targets for every anchor
-        # on negative tiles: all anchors should predict background (class 0)
-        # on positive tiles: matched anchors predict waldo (class 1), rest predict background
-        cls_targets = torch.zeros(num_anchors, dtype=torch.long, device=locs.device)
-
-        if label == 1:
-            # this tile has waldo, convert the ground truth bbox to center format
-            # bboxes are already on the right device because we moved them in the training loop
-            gt_box = bbox_to_center(bboxes[i])
-
-            # find which anchor overlaps the most with the ground truth
-            # we use IoU (intersection over union) to measure overlap
-            # anchors are already on the right device from concatenate_all_heads
-            ious = compute_iou(gt_box, anchors)
-            best_anchor_idx = ious.argmax().item()
-
-            # also mark any anchor with IoU above 0.5 as positive
-            # this gives the model more positive examples to learn from
-            # instead of just the single best matching anchor
-            positive_mask = ious > 0.5
-            positive_mask[best_anchor_idx] = True # make sure the best one is always included
-
-            # set classification targets for matched anchors to waldo (class 1)
-            cls_targets[positive_mask] = 1
-
-            # compute localization loss only for the matched anchors
-            # we encode the ground truth as offsets from each matched anchor
-            # then compare against what the model predicted
-            positive_indices = positive_mask.nonzero(as_tuple=True)[0]
-            num_positive += len(positive_indices)
-
-            if len(positive_indices) > 0:
-                for idx in positive_indices:
-                    # encode the ground truth bbox as offsets from this anchor
-                    target_offsets = encode_ground_truth(gt_box, anchors[idx])
-                    predicted_offsets = img_locs[idx]
-
-                    # smooth L1 loss for bounding box regression
-                    # this is the standard loss used in SSD and other object detectors
-                    # its less sensitive to outliers than MSE loss
-                    # torch.nn.functional.smooth_l1_loss is from pytorch
-                    total_loc_loss += F.smooth_l1_loss(predicted_offsets, target_offsets)
-
-        # classification loss using focal cross entropy
-        # standard cross entropy treats every anchor equally but most anchors are
-        # easy background predictions. focal loss down weights those easy ones
-        # so the model focuses on the confusing anchors near waldo like characters
-        ce_loss = F.cross_entropy(img_cls, cls_targets, reduction='none')
-        pt = torch.exp(-ce_loss)
-        focal_weight = FOCAL_LOSS_ALPHA * (1.0 - pt) ** FOCAL_LOSS_GAMMA
-        total_cls_loss += (focal_weight * ce_loss).mean()
+        TrainOnImage(i,locs,num_anchors,total_cls_loss,total_loc_loss,num_positive,cls_scores, anchors, labels, bboxes)
 
     # average the losses across the batch
     cls_loss = total_cls_loss / batch_size
-    loc_loss = total_loc_loss / max(num_positive, 1) # avoid division by zero if no positives
+    loc_loss = total_loc_loss / max(num_positive, 1) 
 
-    # combine both losses
-    # the cls loss teaches "is waldo here?" and the loc loss teaches "where exactly?"
     total_loss = cls_loss + loc_loss
 
     return total_loss, cls_loss.item(), loc_loss.item()
 
+def TrainBatch(num_batches,batch_idx,total_batches,use_amp,model, optimizer, device, scaler = None):
+    images = images.to(device, non_blocking=True)
+    labels = labels.to(device, non_blocking=True)
+    bboxes = bboxes.to(device, non_blocking=True)
 
-def train_one_epoch(model, dataloader, optimizer, device, scaler=None):
-    # runs one full pass through the training data
-    # for each batch: forward pass, compute loss, backward pass, update weights
-    # uses mixed precision (AMP) if a scaler is provided
-    # AMP runs the forward pass in float16 which is ~2x faster on modern GPUs
-    # and uses half the memory so we can fit bigger batches
-    # returns the average loss for this epoch
+    # print progress so gabe can see its still running
+    if (batch_idx + 1) % 100 == 0 or batch_idx == 0:
+        print(f"  batch {batch_idx + 1}/{total_batches}", flush=True)
 
-    model.train() # put the model in training mode
+    with torch.amp.autocast("cuda", enabled=use_amp):
+        if MODEL_TYPE in ("pretrained_ssd", "retinanet"):
+            targets = format_targets(labels, bboxes, device)
+            loss_dict = model(images, targets)
 
-    running_loss = 0.0
-    running_cls_loss = 0.0
-    running_loc_loss = 0.0
-    num_batches = 0
-    use_amp = scaler is not None
-
-    total_batches = len(dataloader)
-    for batch_idx, (images, labels, bboxes) in enumerate(dataloader):
-        # non_blocking=True overlaps CPU to GPU transfer with GPU computation
-        # the GPU can keep processing the current batch while the next batch transfers
-        images = images.to(device, non_blocking=True)
-        labels = labels.to(device, non_blocking=True)
-        bboxes = bboxes.to(device, non_blocking=True)
-
-        # print progress so gabe can see its still running
-        if (batch_idx + 1) % 100 == 0 or batch_idx == 0:
-            print(f"  batch {batch_idx + 1}/{total_batches}", flush=True)
-
-        # mixed precision: run the forward pass in float16 for speed
-        # the autocast context manager handles the dtype conversions automatically
-        # we only use AMP on CUDA (not MPS or CPU) because thats where it helps
-        with torch.amp.autocast("cuda", enabled=use_amp):
-            if MODEL_TYPE in ("pretrained_ssd", "retinanet"):
-                targets = format_targets(labels, bboxes, device)
-                loss_dict = model(images, targets)
-
-                if MODEL_TYPE == "pretrained_ssd":
-                    focal_cls_loss = focal_loss_weight(loss_dict["classification"])
-                    cls_loss = focal_cls_loss.item()
-                    loc_loss = loss_dict["bbox_regression"].item()
-                    loss = focal_cls_loss + loss_dict["bbox_regression"]
-                else:
-                    cls_loss = loss_dict["classification"].item()
-                    loc_loss = loss_dict["bbox_regression"].item()
-                    loss = loss_dict["classification"] + loss_dict["bbox_regression"]
+            if MODEL_TYPE == "pretrained_ssd":
+                focal_cls_loss = focal_loss_weight(loss_dict["classification"])
+                cls_loss = focal_cls_loss.item()
+                loc_loss = loss_dict["bbox_regression"].item()
+                loss = focal_cls_loss + loss_dict["bbox_regression"]
             else:
-                locs, cls_scores, anchors = model(images)
-                loss, cls_loss, loc_loss = compute_loss(locs, cls_scores, anchors, labels, bboxes)
+                cls_loss = loss_dict["classification"].item()
+                loc_loss = loss_dict["bbox_regression"].item()
+                loss = loss_dict["classification"] + loss_dict["bbox_regression"]
+        else:
+            locs, cls_scores, anchors = model(images)
+            loss, cls_loss, loc_loss = compute_loss(locs, cls_scores, anchors, labels, bboxes)
 
         # backward pass with gradient scaling for mixed precision
         optimizer.zero_grad()
@@ -306,6 +292,50 @@ def train_one_epoch(model, dataloader, optimizer, device, scaler=None):
         running_loc_loss += loc_loss
         num_batches += 1
 
+def ValidateBatch(num_batches,images,labels,bboxes,use_amp,model):
+    with torch.amp.autocast("cuda", enabled=use_amp):
+        if MODEL_TYPE in ("pretrained_ssd", "retinanet"):
+            targets = format_targets(labels, bboxes, device)
+            loss_dict = model(images, targets)
+            if MODEL_TYPE == "pretrained_ssd":
+                focal_cls = focal_loss_weight(loss_dict["classification"])
+                cls_loss = focal_cls.item()
+            else:
+                cls_loss = loss_dict["classification"].item()
+            loc_loss = loss_dict["bbox_regression"].item()
+            loss_val = cls_loss + loc_loss
+            running_loss += loss_val
+        else:
+            locs, cls_scores, anchors = model(images)
+            loss, cls_loss, loc_loss = compute_loss(locs, cls_scores, anchors, labels, bboxes)
+            running_loss += loss.item()
+
+    running_cls_loss += cls_loss
+    running_loc_loss += loc_loss
+    num_batches += 1
+
+'''
+# runs one full pass through the training data
+# for each batch: forward pass, compute loss, backward pass, update weights
+# uses mixed precision (AMP) if a scaler is provided
+# AMP runs the forward pass in float16 which is ~2x faster on modern GPUs
+# and uses half the memory so we can fit bigger batches
+# returns the average loss for this epoch
+'''
+def train_one_epoch(model, dataloader, optimizer, device, scaler=None):
+
+    model.train() # put the model in training mode
+
+    running_loss = 0.0
+    running_cls_loss = 0.0
+    running_loc_loss = 0.0
+    num_batches = 0
+    use_amp = scaler is not None
+
+    total_batches = len(dataloader)
+    for batch_idx, (images, labels, bboxes) in enumerate(dataloader):
+        TrainBatch(num_batches,batch_idx,total_batches,use_amp,model,optimizer, device, scaler)
+        
     # return average losses for the epoch
     avg_loss = running_loss / max(num_batches, 1)
     avg_cls = running_cls_loss / max(num_batches, 1)
@@ -313,12 +343,13 @@ def train_one_epoch(model, dataloader, optimizer, device, scaler=None):
 
     return avg_loss, avg_cls, avg_loc
 
-
-def validate(model, dataloader, device):
+'''
     # runs one pass through the validation data without updating weights
     # we use this to check if the model is overfitting
     # if train loss goes down but val loss goes up, the model is memorizing
     # the training data instead of learning to generalize
+'''
+def validate(model, dataloader, device):
 
     model.eval() # put the model in eval mode
 
@@ -327,12 +358,6 @@ def validate(model, dataloader, device):
     running_loc_loss = 0.0
     num_batches = 0
 
-    # torch.no_grad tells pytorch not to track gradients
-    # this saves memory and speeds things up since we dont need gradients for validation
-    #
-    # for torchvision models (SSD and RetinaNet) we need train mode to get losses
-    # because in eval mode they return detections instead of losses
-    # we still use no_grad so no weights get updated
     if MODEL_TYPE in ("pretrained_ssd", "retinanet"):
         model.train()
 
@@ -343,28 +368,7 @@ def validate(model, dataloader, device):
             images = images.to(device, non_blocking=True)
             labels = labels.to(device, non_blocking=True)
             bboxes = bboxes.to(device, non_blocking=True)
-
-            with torch.amp.autocast("cuda", enabled=use_amp):
-                if MODEL_TYPE in ("pretrained_ssd", "retinanet"):
-                    targets = format_targets(labels, bboxes, device)
-                    loss_dict = model(images, targets)
-                    if MODEL_TYPE == "pretrained_ssd":
-                        focal_cls = focal_loss_weight(loss_dict["classification"])
-                        cls_loss = focal_cls.item()
-                    else:
-                        cls_loss = loss_dict["classification"].item()
-                    loc_loss = loss_dict["bbox_regression"].item()
-                    loss_val = cls_loss + loc_loss
-                    running_loss += loss_val
-                else:
-                    locs, cls_scores, anchors = model(images)
-                    loss, cls_loss, loc_loss = compute_loss(locs, cls_scores, anchors, labels, bboxes)
-                    running_loss += loss.item()
-
-            running_cls_loss += cls_loss
-            running_loc_loss += loc_loss
-            num_batches += 1
-
+            ValidateBatch(num_batches,images,labels,bboxes,use_amp,model)
     model.eval() # put back in eval mode
 
     avg_loss = running_loss / max(num_batches, 1)
@@ -374,11 +378,13 @@ def validate(model, dataloader, device):
     return avg_loss, avg_cls, avg_loc
 
 
-def run_training(checkpoint_dir=None, model_override=None):
+'''
     # main training function that can be called from experiment scripts
     # checkpoint_dir: where to save model weights (defaults to CHECKPOINTS_DIR from config)
     # model_override: pass a pre-created model instead of using create_model()
     # returns: the trained model, best validation loss, and training history
+'''
+def run_training(checkpoint_dir=None, model_override=None):
 
     save_dir = checkpoint_dir or CHECKPOINTS_DIR
     os.makedirs(save_dir, exist_ok=True)
@@ -396,11 +402,6 @@ def run_training(checkpoint_dir=None, model_override=None):
     print(f"model type: {model_type}")
     print(f"model created with {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable parameters")
 
-    # create the optimizer
-    # for pretrained models (SSD and RetinaNet) the backbone is frozen
-    # so we only train the detection heads and the 1x1 preprocessing conv
-    # SGD with momentum works well for fine tuning pretrained models
-    # weight decay (L2 regularization) prevents the heads from overfitting
     if MODEL_TYPE in ("pretrained_ssd", "retinanet") and hasattr(model, 'get_param_groups'):
         head_params = model.get_param_groups()
         optimizer = torch.optim.SGD(
@@ -415,19 +416,12 @@ def run_training(checkpoint_dir=None, model_override=None):
             lr=LEARNING_RATE
         )
 
-    # load the train and validation dataloaders
-    # the train loader uses weighted sampling to handle class imbalance
-    # the val loader just loads tiles normally without any augmentation
     print("loading data...")
     train_loader = get_dataloader(split="train", tile_size=256, batch_size=BATCH_SIZE)
     val_loader = get_dataloader(split="val", tile_size=256, batch_size=BATCH_SIZE, shuffle=False)
     print(f"  train: {len(train_loader.dataset)} tiles")
     print(f"  val: {len(val_loader.dataset)} tiles")
 
-    # learning rate scheduler
-    # if val loss stops improving for LR_SCHEDULER_PATIENCE epochs, cut the learning rate
-    # this helps the model converge when its stuck at a plateau instead of bouncing around
-    # torch.optim.lr_scheduler.ReduceLROnPlateau is a standard pytorch scheduler
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
         mode="min", # we want to minimize val loss
@@ -435,11 +429,6 @@ def run_training(checkpoint_dir=None, model_override=None):
         factor=LR_SCHEDULER_FACTOR
     )
 
-    # mixed precision training with automatic gradient scaling
-    # AMP (automatic mixed precision) runs the forward pass in float16
-    # which is roughly 2x faster and uses half the GPU memory
-    # the GradScaler adjusts gradient magnitudes to prevent underflow in float16
-    # we only use this on CUDA since MPS and CPU dont benefit from AMP
     scaler = torch.amp.GradScaler("cuda") if torch.cuda.is_available() else None
     if scaler:
         print(f"  using mixed precision (AMP) for faster training")
@@ -449,8 +438,6 @@ def run_training(checkpoint_dir=None, model_override=None):
     best_epoch = 0
     epochs_without_improvement = 0 # for early stopping
 
-    # save loss history so evaluate.py can plot training curves later
-    # we store every epochs losses in a list and save to json at the end
     history = {"train_loss": [], "val_loss": [], "train_cls": [], "val_cls": [], "train_loc": [], "val_loc": []}
 
     # make sure the checkpoints directory exists

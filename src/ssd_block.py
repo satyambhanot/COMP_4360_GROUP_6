@@ -1,3 +1,4 @@
+'''
 # ssd_block.py
 # a single SSD detection block that takes a feature map and makes predictions
 # each block predicts bounding box offsets and class scores at one scale
@@ -8,8 +9,8 @@
 # 16x16 -> 8x8 -> 4x4 -> 2x2 -> 1x1
 #
 # this follows the SSD architecture from Liu et al (ECCV 2016)
+'''
 
-import torch
 import torch.nn as nn
 
 

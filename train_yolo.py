@@ -1,3 +1,4 @@
+'''
 # train_yolo.py
 # standalone YOLOv8 training script for comparison against our SSD/RetinaNet models
 #
@@ -20,6 +21,7 @@
 #   python train_yolo.py
 #
 # results get saved to results/yolo/ for comparison
+'''
 
 import sys
 import os
@@ -45,7 +47,7 @@ YOLO_DATA_DIR = os.path.join(PROJECT_ROOT, "data", "yolo_format")
 YOLO_RESULTS_DIR = os.path.join(PROJECT_ROOT, "results", "yolo")
 
 
-def convert_voc_to_yolo(xml_path, img_width, img_height):
+'''
     # converts a Pascal VOC XML annotation to YOLO format
     # YOLO format is: class_id center_x center_y width height
     # all values normalized to 0-1 relative to image dimensions
@@ -55,6 +57,8 @@ def convert_voc_to_yolo(xml_path, img_width, img_height):
     # YOLO wants normalized center coordinates:
     #   0 0.353 0.430 0.018 0.039
     # (class 0, center at 35.3% from left, 43% from top, 1.8% width, 3.9% height)
+'''
+def convert_voc_to_yolo(xml_path, img_width, img_height):
 
     tree = ET.parse(xml_path)
     root = tree.getroot()
@@ -78,18 +82,20 @@ def convert_voc_to_yolo(xml_path, img_width, img_height):
     # class 0 = waldo (YOLO uses 0-indexed classes)
     return f"0 {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}"
 
+'''
 
+# converts our Pascal VOC dataset to YOLO format and splits into train/val
+# YOLO expects this directory structure:
+#   data/yolo_format/
+#     train/
+#       images/  (jpg files)
+#       labels/  (txt files with same names as images)
+#     val/
+#       images/
+#       labels/
+#     dataset.yaml  (tells YOLO where to find everything)
+'''
 def prepare_yolo_dataset():
-    # converts our Pascal VOC dataset to YOLO format and splits into train/val
-    # YOLO expects this directory structure:
-    #   data/yolo_format/
-    #     train/
-    #       images/  (jpg files)
-    #       labels/  (txt files with same names as images)
-    #     val/
-    #       images/
-    #       labels/
-    #     dataset.yaml  (tells YOLO where to find everything)
 
     print("converting dataset to YOLO format...")
 
@@ -98,9 +104,6 @@ def prepare_yolo_dataset():
         os.makedirs(os.path.join(YOLO_DATA_DIR, split, "images"), exist_ok=True)
         os.makedirs(os.path.join(YOLO_DATA_DIR, split, "labels"), exist_ok=True)
 
-    # get all image ids and split them the same way data_pipeline does
-    # we use the same random seed so the split matches our SSD/RetinaNet experiments
-    # this makes the comparison fair since both models see the same train/val data
     image_ids = []
     for f in sorted(os.listdir(RAW_ANNOTATIONS)):
         if f.endswith(".xml"):
@@ -115,8 +118,6 @@ def prepare_yolo_dataset():
 
     train_ids = set(image_ids[:train_end])
     val_ids = set(image_ids[train_end:val_end])
-    # test ids are the rest but YOLO only needs train and val for training
-    # we evaluate on val since YOLO reports metrics on val automatically
 
     converted = 0
     skipped = 0
@@ -189,11 +190,13 @@ names:
     return yaml_path
 
 
+'''
+# trains YOLOv8 using the ultralytics library
+# this is the simplest way to use YOLO, the library handles everything:
+# data loading, augmentation (mosaic, mixup, HSV jitter), training loop,
+# validation, checkpointing, and metric computation
+'''
 def train_yolo(yaml_path):
-    # trains YOLOv8 using the ultralytics library
-    # this is the simplest way to use YOLO, the library handles everything:
-    # data loading, augmentation (mosaic, mixup, HSV jitter), training loop,
-    # validation, checkpointing, and metric computation
 
     try:
         from ultralytics import YOLO
@@ -208,12 +211,9 @@ def train_yolo(yaml_path):
     print(f"  batch size: {YOLO_BATCH_SIZE}")
 
     # load pretrained YOLOv8 nano model
-    # nano is the smallest variant, good enough for comparison
-    # and trains fast on a GTX 1080 Ti
     model = YOLO(YOLO_MODEL)
 
     # train on our waldo dataset
-    # YOLO handles everything: augmentation, loss, optimizer, scheduling
     results = model.train(
         data=yaml_path,
         epochs=YOLO_EPOCHS,

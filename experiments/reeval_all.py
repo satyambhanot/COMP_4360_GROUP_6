@@ -2,12 +2,18 @@
 # re-evaluates all saved checkpoints without retraining
 # useful when evaluation code was fixed but models dont need to retrain
 #
+# for ablation variants, we spawn separate processes because each variant
+# needs different preprocessing flags (use_hsv, use_sobel) which affect
+# the model architecture (different number of input channels)
+#
 # usage: python experiments/reeval_all.py
 
 import sys
 import os
 import json
 import shutil
+import subprocess
+import time
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
@@ -24,21 +30,13 @@ MODELS = {
     "retinanet": {"MODEL_TYPE": "retinanet", "BATCH_SIZE": 8, "RETINANET_INPUT_SIZE": 512},
 }
 
-# ablation variants
-ABLATION_VARIANTS = {
-    "full_pipeline": {"MODEL_TYPE": "retinanet", "BATCH_SIZE": 8, "RETINANET_INPUT_SIZE": 512},
-    "hsv_only": {"MODEL_TYPE": "retinanet", "BATCH_SIZE": 8, "RETINANET_INPUT_SIZE": 512},
-    "rgb_only": {"MODEL_TYPE": "retinanet", "BATCH_SIZE": 8, "RETINANET_INPUT_SIZE": 512},
-}
-
 
 def reeval_model(name, config_overrides, checkpoint_dir, plots_dir, output_dir):
     # re-evaluates a single model from its saved checkpoint
 
-    # check if checkpoint exists
     checkpoint_path = os.path.join(checkpoint_dir, "best_model.pth")
     if not os.path.exists(checkpoint_path):
-        print(f"  {name}: no checkpoint found at {checkpoint_path}, skipping")
+        print(f"  {name}: no checkpoint found, skipping")
         return None
 
     print(f"\n{'=' * 40}")
@@ -65,12 +63,26 @@ def reeval_model(name, config_overrides, checkpoint_dir, plots_dir, output_dir):
     return metrics
 
 
+def reeval_ablation_variant(variant_name, use_hsv, use_sobel):
+    # re-evaluates one ablation variant as a separate process
+    # needs its own process because the model has different input channels
+    # depending on use_hsv and use_sobel flags
+
+    script = os.path.join(PROJECT_ROOT, "experiments", "reeval_ablation_variant.py")
+    cmd = [sys.executable, script, variant_name, str(use_hsv), str(use_sobel)]
+
+    print(f"\n  launching: {variant_name} (hsv={use_hsv}, sobel={use_sobel})", flush=True)
+    result = subprocess.run(cmd, env={**os.environ, "PYTHONUNBUFFERED": "1"})
+
+    return result.returncode == 0
+
+
 if __name__ == "__main__":
     print("=" * 50)
     print("  Re-evaluating all saved checkpoints")
     print("=" * 50)
 
-    # re-evaluate each model
+    # re-evaluate each main model
     for name, overrides in MODELS.items():
         model_dir = os.path.join(SAVED_RESULTS, name)
         checkpoint_dir = os.path.join(model_dir, "checkpoints")
@@ -78,34 +90,25 @@ if __name__ == "__main__":
         os.makedirs(plots_dir, exist_ok=True)
         reeval_model(name, overrides, checkpoint_dir, plots_dir, model_dir)
 
-    # re-evaluate ablation variants
-    for variant_name, overrides in ABLATION_VARIANTS.items():
+    # re-evaluate ablation variants as separate processes
+    # each variant has different preprocessing flags which change the model architecture
+    ablation_variants = [
+        ("full_pipeline", True, True),
+        ("hsv_only", True, False),
+        ("rgb_only", False, False),
+    ]
+
+    for variant_name, use_hsv, use_sobel in ablation_variants:
         variant_dir = os.path.join(SAVED_RESULTS, "ablation", variant_name)
-        checkpoint_dir = os.path.join(variant_dir, "checkpoints")
-        plots_dir = os.path.join(variant_dir, "plots")
-        os.makedirs(plots_dir, exist_ok=True)
-        reeval_model(f"ablation/{variant_name}", overrides, checkpoint_dir, plots_dir, variant_dir)
+        if os.path.exists(os.path.join(variant_dir, "checkpoints", "best_model.pth")):
+            reeval_ablation_variant(variant_name, use_hsv, use_sobel)
+            time.sleep(3)
+        else:
+            print(f"  {variant_name}: no checkpoint, skipping")
 
     # regenerate comparison report
     print("\n--- Generating Report ---", flush=True)
-    from generate_report import find_all_results, find_ablation_results
-    from generate_report import plot_model_comparison, plot_improvement_journey
-    from generate_report import generate_summary_table, save_combined_results
-
-    REPORT_DIR = os.path.join(SAVED_RESULTS, "report")
-    os.makedirs(REPORT_DIR, exist_ok=True)
-
-    # need to set the module level REPORT_DIR
-    import generate_report
-    generate_report.REPORT_DIR = REPORT_DIR
-
-    models = find_all_results()
-    ablation = find_ablation_results()
-    if len(models) >= 2:
-        plot_model_comparison(models)
-        plot_improvement_journey(models)
-        generate_summary_table(models)
-        save_combined_results(models, ablation)
+    os.system(f"{sys.executable} {os.path.join(PROJECT_ROOT, 'experiments', 'generate_report.py')}")
 
     print(f"\n{'=' * 50}")
     print(f"  Done! Check saved_results/ for updated results")

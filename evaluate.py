@@ -47,7 +47,11 @@ def load_model():
     # if the checkpoint doesnt exist it means nobody has trained yet
     # so we print a helpful message instead of crashing
 
-    checkpoint_path = os.path.join(CHECKPOINTS_DIR, "best_model.pth")
+    # read CHECKPOINTS_DIR from config at call time, not import time
+    # this way experiment scripts can override it before calling load_model
+    import config as _cfg
+    ckpt_dir = _cfg.CHECKPOINTS_DIR
+    checkpoint_path = os.path.join(ckpt_dir, "best_model.pth")
 
     if not os.path.exists(checkpoint_path):
         print(f"no checkpoint found at {checkpoint_path}")
@@ -516,7 +520,9 @@ def plot_training_curves():
     # this shows whether the model was learning and when it started overfitting
     # we plot train and val loss on the same chart for easy comparison
 
-    history_path = os.path.join(CHECKPOINTS_DIR, "training_history.json")
+    # read from config at call time so experiment scripts can override the path
+    import config as _cfg
+    history_path = os.path.join(_cfg.CHECKPOINTS_DIR, "training_history.json")
 
     if not os.path.exists(history_path):
         print("no training history found, skipping training curves")

@@ -1,25 +1,17 @@
-# paste_waldo.py
-# generates synthetic training images by pasting waldo cutouts onto random backgrounds
-# gabe collected 10 waldo cutouts (transparent PNGs) and 100 background images
-# this script combines them randomly to create new training data
-#
-# the idea is that our model struggles because it only has ~79 positive tiles
-# from the real wheres waldo scenes. in those scenes waldo is always surrounded
-# by hundreds of other characters and the model cant figure out what makes
-# waldo different from everyone else
-#
-# by pasting waldo onto varied backgrounds we give the model clean examples
-# of what waldo looks like in isolation, on simple backgrounds, and on
-# complex backgrounds. this teaches the visual pattern of waldo specifically
-# (red/white stripes, glasses, hat) without the confusion of the cluttered scenes
-#
-# output goes directly into data/raw/images/ and data/raw/annotations/
-# so the existing data_pipeline.py picks them up automatically during tiling
-# files are named gen_001.jpg, gen_002.jpg etc to avoid collision with
-# existing image files (1.jpg through 124G.jpg)
-#
-# run this once, commit the results, then everyone has the same dataset
-# usage: python src/paste_waldo.py
+'''
+paste_waldo.py
+generates synthetic training images by pasting waldo cutouts onto random backgrounds
+gabe collected 10 waldo cutouts (transparent PNGs) and 100 background images
+
+the model struggles with only ~79 positive tiles from real scenes where waldo
+is surrounded by hundreds of characters. by pasting waldo onto varied backgrounds
+we give the model clean examples of what waldo looks like without the clutter.
+
+output goes to data/raw/images/ and data/raw/annotations/ so data_pipeline.py
+picks them up automatically. files named gen_001.jpg etc to avoid collisions.
+
+usage: python src/paste_waldo.py (run once, commit results)
+'''
 
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
@@ -62,9 +54,16 @@ VERIFICATION_PATH = os.path.join(PROJECT_ROOT, "data", "assets")
 
 
 def get_image_files(directory):
-    # returns a sorted list of image files in a directory
-    # filters out non image files like .DS_Store, .gitkeep, thumbs.db etc
-    # sorting makes the output deterministic regardless of OS file listing order
+    '''
+    returns a sorted list of image files in a directory
+    filters out non image files like .DS_Store and .gitkeep
+
+    args:
+        directory: path to scan for images
+
+    returns:
+        sorted list of filenames with valid image extensions
+    '''
     files = []
     for f in sorted(os.listdir(directory)):
         ext = os.path.splitext(f)[1].lower()
@@ -74,8 +73,16 @@ def get_image_files(directory):
 
 
 def scale_waldo_to_background(background_img, waldo_img):
-    # scales waldo so hes roughly WALDO_BASE_RATIO of the background size
-    # then applies a random scaling factor for variety
+    '''
+    scales waldo to roughly 10% of the background size with random variation
+
+    args:
+        background_img: PIL Image of the background
+        waldo_img: PIL Image of the waldo cutout (RGBA)
+
+    returns:
+        resized waldo PIL Image
+    '''
     # returns the resized waldo image
     bg_w, bg_h = background_img.size
     fg_w, fg_h = waldo_img.size
@@ -104,12 +111,18 @@ def scale_waldo_to_background(background_img, waldo_img):
 
 
 def create_annotation_xml(image_id, img_width, img_height, xmin, ymin, xmax, ymax):
-    # creates a Pascal VOC XML annotation string
-    # matches the exact format our data_pipeline.py expects:
-    #   <annotation>
-    #     <size><width> <height></size>
-    #     <object><bndbox><xmin> <ymin> <xmax> <ymax></bndbox></object>
-    #   </annotation>
+    '''
+    creates a Pascal VOC XML annotation string matching our pipeline format
+
+    args:
+        image_id: string id for the image (e.g. "gen_001")
+        img_width: image width in pixels
+        img_height: image height in pixels
+        xmin, ymin, xmax, ymax: waldo bounding box coordinates
+
+    returns:
+        formatted XML string ready to write to file
+    '''
 
     annotation = ET.Element("annotation")
 
@@ -149,8 +162,14 @@ def create_annotation_xml(image_id, img_width, img_height, xmin, ymin, xmax, yma
 
 
 def generate_images():
-    # main function that generates all the synthetic training images
-    # each image is a random background with a random waldo cutout pasted on it
+    '''
+    main function that generates all synthetic training images
+    pastes random waldo cutouts onto random backgrounds and saves
+    the composites with matching XML annotations
+
+    returns:
+        list of dicts with image_id, paths, bbox, and size for each generated image
+    '''
 
     random.seed(RANDOM_SEED)
 
@@ -249,9 +268,16 @@ def generate_images():
 
 
 def verify_generated(generated):
-    # double checks that every generated image has a matching XML
-    # and that the bounding box is within the image bounds
-    # this catches any bugs in the generation process before we commit
+    '''
+    validates all generated images have matching XMLs with correct bounding boxes
+    catches any bugs in the generation process before committing
+
+    args:
+        generated: list of dicts from generate_images()
+
+    returns:
+        number of issues found (0 means everything is good)
+    '''
 
     print(f"\nverifying {len(generated)} generated images...")
     issues = 0
@@ -306,9 +332,13 @@ def verify_generated(generated):
 
 
 def save_verification_grid(generated):
-    # saves a 3x3 grid of sample images with bounding boxes drawn on them
-    # gabe can open this one image and instantly see if the boxes are correct
-    # much faster than checking 200 individual images
+    '''
+    saves a 3x3 grid of sample images with green bounding boxes drawn on them
+    gabe opens one image and instantly sees if all the boxes are correct
+
+    args:
+        generated: list of dicts from generate_images()
+    '''
 
     if len(generated) < 9:
         print("not enough images to create verification grid")

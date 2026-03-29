@@ -1,11 +1,12 @@
-# data_pipeline.py
-# this file handles everything related to getting our data ready for the model
-# it takes our raw wheres waldo images and their xml annotations,
-# chops them into 256x256 tiles using multiple grid offsets,
-# runs the random crop augmentation for extra positive tiles,
-# figures out which tiles actually contain waldo,
-# splits everything into train/val/test sets,
-# and provides a pytorch dataset and dataloader so other files can easily grab batches
+'''
+data_pipeline.py
+handles everything related to getting our data ready for the model
+takes raw wheres waldo images and their xml annotations, chops them
+into 256x256 tiles using multiple grid offsets, runs random crop
+augmentation for extra positive tiles, figures out which tiles
+contain waldo, splits into train/val/test sets, and provides a
+pytorch dataset and dataloader for training and evaluation
+'''
 
 import os
 import json
@@ -31,7 +32,18 @@ from config import (
 )
 
 
-def parse_annotation(xml_path): # reads one xml file and pulls out the bounding box
+def parse_annotation(xml_path):
+    '''
+    reads one Pascal VOC xml annotation file and extracts the bounding box
+
+    args:
+        xml_path: path to the xml annotation file
+
+    returns:
+        img_w: image width in pixels
+        img_h: image height in pixels
+        bbox: [xmin, ymin, xmax, ymax] waldo bounding box coordinates
+    '''
     tree = ET.parse(xml_path)
     root = tree.getroot()
 
@@ -49,7 +61,18 @@ def parse_annotation(xml_path): # reads one xml file and pulls out the bounding 
     return img_w, img_h, [xmin, ymin, xmax, ymax]
 
 
-def waldo_overlap(waldo_box, tile_box): # what fraction of waldo is inside this tile?
+def waldo_overlap(waldo_box, tile_box):
+    '''
+    computes what fraction of waldo is inside a given tile
+    used to decide if a tile counts as positive (contains waldo)
+
+    args:
+        waldo_box: [xmin, ymin, xmax, ymax] waldo bounding box
+        tile_box: [xmin, ymin, xmax, ymax] tile bounding box
+
+    returns:
+        fraction of waldo area that overlaps with the tile (0.0 to 1.0)
+    '''
     xA = max(waldo_box[0], tile_box[0])
     yA = max(waldo_box[1], tile_box[1])
     xB = min(waldo_box[2], tile_box[2])
@@ -63,7 +86,19 @@ def waldo_overlap(waldo_box, tile_box): # what fraction of waldo is inside this 
     return inter / waldo_area # fraction of waldo thats inside the tile
 
 
-def tile_image(image_id): # chop one image into tiles at all resolutions and grid offsets
+def tile_image(image_id):
+    '''
+    chops one image into 256x256 tiles using multiple grid offsets
+    each offset shifts where the tile grid starts so waldo lands on
+    different tile boundaries giving us more diverse positive tiles
+
+    args:
+        image_id: string id of the image (matches filename without extension)
+
+    returns:
+        list of tile info dicts with image_id, tile_size, file, x, y,
+        has_waldo, and local_bbox for each generated tile
+    '''
     img_path = os.path.join(RAW_IMAGES, f"{image_id}.jpg")
     xml_path = os.path.join(RAW_ANNOTATIONS, f"{image_id}.xml")
 
@@ -122,7 +157,20 @@ def tile_image(image_id): # chop one image into tiles at all resolutions and gri
     return tiles_info
 
 
-def make_splits(all_tiles, train_ratio=TRAIN_RATIO, val_ratio=VAL_RATIO): # split by image id so no leaking
+def make_splits(all_tiles, train_ratio=TRAIN_RATIO, val_ratio=VAL_RATIO):
+    '''
+    splits tiles into train/val/test sets by image id (not by tile)
+    this prevents data leaking where tiles from the same image end up
+    in both training and testing
+
+    args:
+        all_tiles: list of all tile info dicts
+        train_ratio: fraction for training (default 0.7)
+        val_ratio: fraction for validation (default 0.15)
+
+    returns:
+        dict with "train", "val", "test" keys each containing a list of tiles
+    '''
     image_ids = list(set(t["image_id"] for t in all_tiles))
     random.shuffle(image_ids)
 
@@ -146,7 +194,12 @@ def make_splits(all_tiles, train_ratio=TRAIN_RATIO, val_ratio=VAL_RATIO): # spli
     return splits
 
 
-def run_pipeline(): # the main function that does everything, tiles all images and creates the splits
+def run_pipeline():
+    '''
+    main function that runs the complete data pipeline
+    tiles all images, runs augmentation, creates train/val/test splits,
+    and saves everything to splits.json
+    '''
     print("starting tiling pipeline...")
 
     # get all image ids from the annotation folder
@@ -314,8 +367,19 @@ class WaldoTileDataset(Dataset):
 
 
 def get_dataloader(split="train", tile_size=256, batch_size=BATCH_SIZE, shuffle=True):
-    # this is the main way other files load data
-    # just call get_dataloader() and you get batches of (images, labels, bboxes) ready to go
+    '''
+    main entry point for loading data throughout the project
+    returns a pytorch dataloader that yields (images, labels, bboxes) batches
+
+    args:
+        split: "train", "val", or "test"
+        tile_size: size of tiles to load (default 256)
+        batch_size: number of tiles per batch
+        shuffle: whether to randomize order (ignored for train, uses sampler)
+
+    returns:
+        DataLoader yielding (images [N,3,256,256], labels [N], bboxes [N,4])
+    '''
     dataset = WaldoTileDataset(split=split, tile_size=tile_size)
 
     # for training we use weighted sampling to handle the class imbalance

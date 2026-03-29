@@ -1,25 +1,19 @@
-# train_yolo.py
-# standalone YOLOv8 training script for comparison against our SSD/RetinaNet models
-#
-# this is NOT part of the main pipeline. its a separate experiment to see how
-# a modern state of the art detector performs on the same data
-# we use it in the report to compare our approach against the best available
-#
-# YOLOv8 is fundamentally different from our SSD/RetinaNet approach:
-#   1. it processes FULL images (1280x1280) instead of small tiles
-#   2. it uses its own training loop (ultralytics library handles everything)
-#   3. it has built in mosaic augmentation which combines 4 images into 1
-#   4. it uses an anchor free detection head instead of anchor based
-#
-# the big advantage is that YOLOv8 sees the entire scene at once
-# while our models only see small 256x256 patches. this gives YOLO
-# way more context to figure out which character is waldo
-#
-# usage:
-#   pip install ultralytics
-#   python train_yolo.py
-#
-# results get saved to results/yolo/ for comparison
+'''
+train_yolo.py
+standalone YOLOv8 training script for comparison against our SSD/RetinaNet models
+NOT part of the main pipeline, just a reference point for the report
+
+YOLOv8 is fundamentally different from our approach:
+  processes FULL images (1280x1280) instead of 256x256 tiles
+  uses ultralytics own training loop with mosaic augmentation
+  anchor free detection head instead of anchor based
+
+the big advantage is YOLOv8 sees the entire scene at once giving it
+way more context to figure out which character is waldo
+
+usage: python train_yolo.py
+results saved to results/yolo/
+'''
 
 import sys
 import os
@@ -46,15 +40,18 @@ YOLO_RESULTS_DIR = os.path.join(PROJECT_ROOT, "results", "yolo")
 
 
 def convert_voc_to_yolo(xml_path, img_width, img_height):
-    # converts a Pascal VOC XML annotation to YOLO format
-    # YOLO format is: class_id center_x center_y width height
-    # all values normalized to 0-1 relative to image dimensions
-    #
-    # our XML has absolute pixel coordinates:
-    #   <xmin>706</xmin> <ymin>513</ymin> <xmax>743</xmax> <ymax>562</ymax>
-    # YOLO wants normalized center coordinates:
-    #   0 0.353 0.430 0.018 0.039
-    # (class 0, center at 35.3% from left, 43% from top, 1.8% width, 3.9% height)
+    '''
+    converts a Pascal VOC XML annotation to YOLO txt format
+    YOLO uses normalized center coordinates: class_id cx cy w h (all 0-1)
+
+    args:
+        xml_path: path to the Pascal VOC xml file
+        img_width: image width for normalization
+        img_height: image height for normalization
+
+    returns:
+        YOLO format string like "0 0.353 0.430 0.018 0.039" or None if no object
+    '''
 
     tree = ET.parse(xml_path)
     root = tree.getroot()
@@ -80,16 +77,13 @@ def convert_voc_to_yolo(xml_path, img_width, img_height):
 
 
 def prepare_yolo_dataset():
-    # converts our Pascal VOC dataset to YOLO format and splits into train/val
-    # YOLO expects this directory structure:
-    #   data/yolo_format/
-    #     train/
-    #       images/  (jpg files)
-    #       labels/  (txt files with same names as images)
-    #     val/
-    #       images/
-    #       labels/
-    #     dataset.yaml  (tells YOLO where to find everything)
+    '''
+    converts our Pascal VOC dataset to YOLO format with train/val split
+    uses the same random seed as our main pipeline for fair comparison
+
+    returns:
+        path to the dataset.yaml config file for ultralytics
+    '''
 
     print("converting dataset to YOLO format...")
 
@@ -190,10 +184,16 @@ names:
 
 
 def train_yolo(yaml_path):
-    # trains YOLOv8 using the ultralytics library
-    # this is the simplest way to use YOLO, the library handles everything:
-    # data loading, augmentation (mosaic, mixup, HSV jitter), training loop,
-    # validation, checkpointing, and metric computation
+    '''
+    trains YOLOv8 nano using the ultralytics library
+    the library handles data loading, mosaic augmentation, training, and validation
+
+    args:
+        yaml_path: path to the YOLO dataset.yaml config
+
+    returns:
+        trained YOLO model, or None if ultralytics not installed
+    '''
 
     try:
         from ultralytics import YOLO
@@ -229,8 +229,16 @@ def train_yolo(yaml_path):
 
 
 def evaluate_yolo(model):
-    # runs evaluation on the validation set and saves results
-    # in the same JSON format as our evaluate.py so we can compare
+    '''
+    evaluates the trained YOLO model and saves results in our JSON format
+    so we can compare against our SSD/RetinaNet results
+
+    args:
+        model: trained YOLO model from train_yolo()
+
+    returns:
+        results dict with precision, recall, f1, mAP metrics
+    '''
 
     if model is None:
         return

@@ -1,25 +1,14 @@
-# augment.py
-# this script generates extra positive tiles by randomly cropping around waldo
-# in the source images. the idea is simple: instead of only getting tiles from
-# a fixed grid (where waldo always lands in the same 1-2 tiles per image),
-# we take random 256x256 patches that are guaranteed to contain waldo
-# but with him at different positions within the patch
-#
-# this is important because we only have about 79 positive tiles from the
-# fixed grid tiling. thats not enough for the model to learn what waldo
-# looks like vs all the other characters in the scene. with random crops
-# we can get 10-15 unique views of waldo per image, each with different
-# surrounding context and clutter
-#
-# we also flip each crop horizontally to double the count
-# waldo looks the same facing left or right so this is safe
-#
-# this script gets called by data_pipeline.py during the tiling process
-# so the random crop tiles end up in the same splits.json as the grid tiles
-#
-# we only do this for images that are big enough to actually crop from
-# the tiny findingwaldo crops (images 56-77 etc) are already smaller than
-# 256x256 so theres nothing to crop
+'''
+augment.py
+generates extra positive tiles by randomly cropping 256x256 patches around
+waldo in the source images. instead of only getting tiles from a fixed grid
+(where waldo always lands in the same 1-2 tiles), we take random patches
+with waldo at different positions giving us more diverse training examples.
+
+each crop also gets flipped horizontally to double the count since waldo
+looks the same facing left or right. only runs on images big enough to
+crop from (512px minimum). called by data_pipeline.py during tiling.
+'''
 
 import os
 import random
@@ -43,8 +32,16 @@ MIN_IMAGE_SIZE = 512
 
 
 def parse_annotation(xml_path):
-    # same parsing logic as data_pipeline.py
-    # reads the xml and returns image dimensions and waldo bounding box
+    '''
+    reads one xml annotation file and extracts image dimensions and bbox
+    same logic as data_pipeline.py version
+
+    args:
+        xml_path: path to the Pascal VOC xml file
+
+    returns:
+        img_w, img_h, [xmin, ymin, xmax, ymax]
+    '''
     tree = ET.parse(xml_path)
     root = tree.getroot()
 
@@ -63,8 +60,17 @@ def parse_annotation(xml_path):
 
 
 def waldo_overlap(waldo_box, tile_box):
-    # what fraction of waldo is inside this crop?
-    # same function as data_pipeline.py so the overlap check is consistent
+    '''
+    computes what fraction of waldo is inside a crop
+    same function as data_pipeline.py so the overlap check is consistent
+
+    args:
+        waldo_box: [xmin, ymin, xmax, ymax]
+        tile_box: [xmin, ymin, xmax, ymax]
+
+    returns:
+        overlap fraction (0.0 to 1.0)
+    '''
     xA = max(waldo_box[0], tile_box[0])
     yA = max(waldo_box[1], tile_box[1])
     xB = min(waldo_box[2], tile_box[2])
@@ -81,9 +87,21 @@ def waldo_overlap(waldo_box, tile_box):
 
 
 def generate_random_crops(image_id, img, img_w, img_h, waldo_bbox, tile_size=INPUT_SIZE):
-    # generates random 256x256 crops that contain at least 50% of waldo
-    # we pick random top-left corners for the crop and check that waldo
-    # overlaps enough. if not we try another random position.
+    '''
+    generates random 256x256 crops around waldo with him at different positions
+    each crop is guaranteed to contain at least 50% of waldo
+
+    args:
+        image_id: string id of the source image
+        img: PIL Image object
+        img_w: image width
+        img_h: image height
+        waldo_bbox: [xmin, ymin, xmax, ymax] waldo bounding box
+        tile_size: size of each crop (default 256)
+
+    returns:
+        list of tile info dicts (same format as data_pipeline tiles)
+    '''
     #
     # the key insight is that waldo can be anywhere within the crop
     # not just in the center. this gives us crops where waldo is in the
@@ -179,8 +197,13 @@ def generate_random_crops(image_id, img, img_w, img_h, waldo_bbox, tile_size=INP
 
 
 def run_augmentation():
-    # main function that goes through all images and generates random crops
-    # we use the same random seed as the rest of the pipeline for reproducibility
+    '''
+    main function that generates random crop augmentations for all images
+    called by data_pipeline.py during the tiling process
+
+    returns:
+        list of tile info dicts for all generated crops
+    '''
 
     random.seed(RANDOM_SEED)
 
@@ -227,7 +250,3 @@ def run_augmentation():
     return all_tiles
 
 
-if __name__ == "__main__":
-    tiles = run_augmentation()
-    print(f"\ngenerated {len(tiles)} augmented tiles")
-    print("these will be included in splits.json when data_pipeline.py runs")

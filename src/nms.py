@@ -1,23 +1,17 @@
-# nms.py
-# non maximum suppression
-# after the model makes predictions we end up with 1364 anchor predictions per image
-# most of them will say "no waldo here" with low confidence
-# but for the spots where waldo actually is, multiple nearby anchors
-# will all say "waldo is here!" with high confidence
-# we dont want 10 boxes around the same spot, we just want the best one
-#
-# this only runs during evaluation, not during training
-# during training we need all 1364 raw predictions to compute the loss
-#
-# the steps:
-#   1. decode the predicted offsets into actual box coordinates
-#   2. convert box format from [cx, cy, w, h] to [x1, y1, x2, y2]
-#   3. run softmax on class scores to get probabilities
-#   4. throw away anything below the confidence threshold
-#   5. run torchvision.ops.nms to remove overlapping boxes
-#   6. return only the surviving boxes and their scores
-#
-# we do this for each image in the batch separately
+'''
+nms.py
+non maximum suppression for filtering duplicate detections
+after the model predicts 1364 anchors per image, many of them overlap
+in the same spot. NMS keeps only the best prediction in each region.
+
+only used during evaluation, not training. the steps are:
+  1. decode predicted offsets into actual box coordinates
+  2. convert from center format [cx, cy, w, h] to corner format [x1, y1, x2, y2]
+  3. run softmax to get confidence probabilities
+  4. throw away predictions below the confidence threshold
+  5. run torchvision.ops.nms to remove overlapping boxes
+  6. return the surviving boxes and scores
+'''
 # because you cant mix predictions from different images
 
 import torch
@@ -27,20 +21,16 @@ from config import NMS_CONFIDENCE_THRESHOLD, NMS_IOU_THRESHOLD
 
 
 def center_to_corners(boxes):
-    # converts boxes from [cx, cy, w, h] format to [x1, y1, x2, y2] format
-    # we need this because torchvision.ops.nms expects corner format
-    # our anchors and decoded predictions use center format
-    #
-    # cx, cy is the center of the box
-    # w, h is the width and height
-    # x1, y1 is the top left corner
-    # x2, y2 is the bottom right corner
-    #
-    # the math is simple:
-    #   x1 = cx minus half the width (left edge)
-    #   y1 = cy minus half the height (top edge)
-    #   x2 = cx plus half the width (right edge)
-    #   y2 = cy plus half the height (bottom edge)
+    '''
+    converts boxes from center format [cx, cy, w, h] to corner format [x1, y1, x2, y2]
+    torchvision.ops.nms expects corner format but our anchors use center format
+
+    args:
+        boxes: tensor [N, 4] in center format [cx, cy, w, h]
+
+    returns:
+        tensor [N, 4] in corner format [x1, y1, x2, y2]
+    '''
 
     cx = boxes[:, 0]
     cy = boxes[:, 1]
@@ -56,28 +46,24 @@ def center_to_corners(boxes):
 
 
 def decode_predictions(loc_preds, anchors):
-    # the SSD heads dont predict actual box positions
-    # they predict offsets from the anchor positions
-    # this function turns those offsets into actual box coordinates
-    #
-    # loc_preds is [num_anchors, 4] with predicted offsets (dx, dy, dw, dh)
-    # anchors is [num_anchors, 4] with anchor positions (cx, cy, w, h)
-    #
-    # the decoding formula:
-    #   predicted_cx = anchor_cx + (dx * anchor_w)
-    #     the offset dx says how far to shift the center horizontally
-    #     we multiply by anchor width so the offset is relative to the anchor size
-    #   predicted_cy = anchor_cy + (dy * anchor_h)
-    #     same thing but vertical
-    #   predicted_w = anchor_w * exp(dw)
-    #     the offset dw says how much to scale the width
-    #     we use exp so the width is always positive
-    #   predicted_h = anchor_h * exp(dh)
-    #     same thing for height
-    #
-    # i learned this decoding formula from the SSD paper
-    # (Liu et al, SSD: Single Shot MultiBox Detector, ECCV 2016)
-    # its the standard way all SSD implementations decode predictions
+    '''
+    converts predicted offsets from SSD heads into actual box coordinates
+    the model predicts (dx, dy, dw, dh) relative to each anchor position
+    this decodes those into absolute (cx, cy, w, h) coordinates
+
+    the decoding formula from the SSD paper (Liu et al, ECCV 2016):
+      predicted_cx = anchor_cx + dx * anchor_w
+      predicted_cy = anchor_cy + dy * anchor_h
+      predicted_w = anchor_w * exp(dw)
+      predicted_h = anchor_h * exp(dh)
+
+    args:
+        loc_preds: predicted offsets [num_anchors, 4] as (dx, dy, dw, dh)
+        anchors: anchor positions [num_anchors, 4] as (cx, cy, w, h)
+
+    returns:
+        decoded boxes [num_anchors, 4] as (cx, cy, w, h) in pixel coordinates
+    '''
 
     anchor_cx = anchors[:, 0]
     anchor_cy = anchors[:, 1]
@@ -101,18 +87,22 @@ def decode_predictions(loc_preds, anchors):
 def apply_nms(locs, cls_scores, anchors,
               confidence_threshold=NMS_CONFIDENCE_THRESHOLD,
               iou_threshold=NMS_IOU_THRESHOLD):
-    # this is the main function that evaluate.py will call
-    # takes the raw output from the model and filters it down to
-    # just the best non overlapping predictions
-    #
-    # locs: [N, 1364, 4] predicted offsets from the model
-    # cls_scores: [N, 1364, 2] raw logits (waldo vs background) from the model
-    # anchors: [1364, 4] anchor positions in [cx, cy, w, h] format
-    #
-    # returns a list of tuples, one per image in the batch
-    # each tuple is (filtered_boxes, filtered_scores)
-    # filtered_boxes is [num_kept, 4] in [x1, y1, x2, y2] format
-    # filtered_scores is [num_kept] with confidence values
+    '''
+    main NMS function called by evaluate.py during inference
+    takes raw model output and filters down to the best non overlapping predictions
+
+    args:
+        locs: predicted offsets [N, 1364, 4] from the model
+        cls_scores: raw logits [N, 1364, 2] (waldo vs background)
+        anchors: anchor positions [1364, 4] in center format
+        confidence_threshold: minimum waldo probability to keep (default from config)
+        iou_threshold: maximum overlap between two kept boxes (default 0.5)
+
+    returns:
+        list of (boxes, scores) tuples, one per image in the batch
+        boxes are [num_kept, 4] in corner format [x1, y1, x2, y2]
+        scores are [num_kept] confidence values
+    '''
 
     batch_size = locs.shape[0]
     results = []

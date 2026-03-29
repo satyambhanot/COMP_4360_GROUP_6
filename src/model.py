@@ -65,7 +65,7 @@ from torchvision.models.detection import ssd300_vgg16, retinanet_resnet50_fpn_v2
 from torchvision.models.detection.ssd import SSDClassificationHead
 
 from pre_processing import preprocess_batch, apply_hsv_mask, apply_sobel_edge_detection
-from ssd_block import ssd_block
+from ssd_block import SSDBlock
 from anchors import concatenate_all_heads
 from config import (
     BACKBONE_LAYERS, BACKBONE_CHANNELS,
@@ -126,7 +126,7 @@ class WaldoDetector(nn.Module):
         # this way their weights get saved in checkpoints and moved to GPU properly
         # each head takes 64 channels from the backbone and predicts loc and cls
         self.ssd_heads = nn.ModuleList([
-            ssd_block(
+            SSDBlock(
                 in_channels=BACKBONE_CHANNELS,
                 num_classes=NUM_CLASSES,
                 kernel_size=SSD_KERNEL_SIZE,

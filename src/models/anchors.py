@@ -35,10 +35,12 @@ def generate_anchors(feature_size, image_size=INPUT_SIZE):
     # how big is each grid cell in pixels
     step = image_size / feature_size
 
-    # we want anchors of different sizes at each position
-    # smaller scale for early heads (they see fine detail)
-    # bigger scale for later heads (they see the big picture)
-    # these are fractions of the step size
+    '''
+    we want anchors of different sizes at each position
+    smaller scale for early heads (they see fine detail)
+    bigger scale for later heads (they see the big picture)
+    these are fractions of the step size
+    '''
     scales = [0.5, 1.0, 1.5, 2.0]
 
     for row in range(feature_size):
@@ -120,9 +122,11 @@ def concatenate_all_heads(all_loc_preds, all_cls_preds, feature_sizes):
     all_cls = torch.cat(reshaped_cls, dim=1) # [N, total_anchors, 2]
     all_anchors = torch.cat(all_anchors, dim=0) # [total_anchors, 4]
 
-    # make sure anchors are on the same device as the predictions
-    # generate_anchors creates them on CPU but if the model is on GPU
-    # everything needs to be on the same device or pytorch will crash
+    '''
+    make sure anchors are on the same device as the predictions
+    generate_anchors creates them on CPU but if the model is on GPU
+    everything needs to be on the same device or pytorch will crash
+    '''
     all_anchors = all_anchors.to(all_locs.device)
 
     return all_locs, all_cls, all_anchors

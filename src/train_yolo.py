@@ -92,9 +92,11 @@ def prepare_yolo_dataset():
         os.makedirs(os.path.join(YOLO_DATA_DIR, split, "images"), exist_ok=True)
         os.makedirs(os.path.join(YOLO_DATA_DIR, split, "labels"), exist_ok=True)
 
-    # get all image ids and split them the same way data_pipeline does
-    # we use the same random seed so the split matches our SSD/RetinaNet experiments
-    # this makes the comparison fair since both models see the same train/val data
+    '''
+    get all image ids and split them the same way data_pipeline does
+    we use the same random seed so the split matches our SSD/RetinaNet experiments
+    this makes the comparison fair since both models see the same train/val data
+    '''
     image_ids = []
     for f in sorted(os.listdir(RAW_ANNOTATIONS)):
         if f.endswith(".xml"):
@@ -207,9 +209,11 @@ def train_yolo(yaml_path):
     print(f"  image size: {YOLO_IMG_SIZE}")
     print(f"  batch size: {YOLO_BATCH_SIZE}")
 
-    # load pretrained YOLOv8 nano model
-    # nano is the smallest variant, good enough for comparison
-    # and trains fast on a GTX 1080 Ti
+    '''
+    load pretrained YOLOv8 nano model
+    nano is the smallest variant, good enough for comparison
+    and trains fast on a GTX 1080 Ti
+    '''
     model = YOLO(YOLO_MODEL)
 
     # train on our waldo dataset
@@ -249,9 +253,11 @@ def evaluate_yolo(model):
     # but we can also run explicit validation
     metrics = model.val()
 
-    # extract the key metrics we care about
-    # YOLO reports metrics differently than our evaluate.py
-    # but we can map them to the same format
+    '''
+    extract the key metrics we care about
+    YOLO reports metrics differently than our evaluate.py
+    but we can map them to the same format
+    '''
     results = {
         "model_type": "yolov8",
         "metrics": {

@@ -23,20 +23,26 @@ import sys
 sys.path.insert(0, os.path.dirname(__file__))
 from config import RANDOM_SEED
 
-# how many synthetic images to generate
-# each image is one waldo cutout pasted on one random background
-# with 10 waldo poses and 100 backgrounds we have 1000 possible combinations
-# 200 gives us good variety without being excessive
+'''
+how many synthetic images to generate
+each image is one waldo cutout pasted on one random background
+with 10 waldo poses and 100 backgrounds we have 1000 possible combinations
+200 gives us good variety without being excessive
+'''
 NUM_GENERATED_IMAGES = 200
 
-# waldo gets scaled to roughly this fraction of the background image
-# 0.1 means waldo takes up about 10% of the image which is realistic
-# for how big waldo appears in the actual puzzle illustrations
+'''
+waldo gets scaled to roughly this fraction of the background image
+0.1 means waldo takes up about 10% of the image which is realistic
+for how big waldo appears in the actual puzzle illustrations
+'''
 WALDO_BASE_RATIO = 0.1
 
-# random scaling variation on top of the base ratio
-# 0.7 to 1.3 means waldo can be 70% to 130% of the base size
-# this teaches the model to detect waldo at slightly different scales
+'''
+random scaling variation on top of the base ratio
+0.7 to 1.3 means waldo can be 70% to 130% of the base size
+this teaches the model to detect waldo at slightly different scales
+'''
 WALDO_SCALE_MIN = 0.7
 WALDO_SCALE_MAX = 1.3
 
@@ -197,16 +203,20 @@ def generate_images():
         image_id = f"gen_{i:03d}"
 
         try:
-            # pick a random background and convert to RGB
-            # some backgrounds are PNG with alpha or webp, converting to RGB
-            # makes sure we always get a clean 3 channel image for saving as JPG
+            '''
+            pick a random background and convert to RGB
+            some backgrounds are PNG with alpha or webp, converting to RGB
+            makes sure we always get a clean 3 channel image for saving as JPG
+            '''
             bg_file = random.choice(bg_files)
             bg = Image.open(os.path.join(BG_PATH, bg_file)).convert("RGB")
             bg_w, bg_h = bg.size
 
-            # pick a random waldo cutout and keep as RGBA for the transparency mask
-            # the waldo PNGs have transparent backgrounds so when we paste
-            # only waldo himself shows up, not a white rectangle around him
+            '''
+            pick a random waldo cutout and keep as RGBA for the transparency mask
+            the waldo PNGs have transparent backgrounds so when we paste
+            only waldo himself shows up, not a white rectangle around him
+            '''
             waldo_file = random.choice(waldo_files)
             waldo = Image.open(os.path.join(WALDO_PATH, waldo_file)).convert("RGBA")
 
@@ -214,9 +224,11 @@ def generate_images():
             waldo = scale_waldo_to_background(bg, waldo)
             waldo_w, waldo_h = waldo.size
 
-            # make sure waldo actually fits on this background
-            # if the background is tiny and waldo is still too big after scaling
-            # just skip this one and try the next
+            '''
+            make sure waldo actually fits on this background
+            if the background is tiny and waldo is still too big after scaling
+            just skip this one and try the next
+            '''
             if waldo_w >= bg_w or waldo_h >= bg_h:
                 print(f"  skipping {image_id}: waldo ({waldo_w}x{waldo_h}) doesnt fit on background ({bg_w}x{bg_h})")
                 errors += 1

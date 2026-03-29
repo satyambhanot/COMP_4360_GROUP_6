@@ -112,9 +112,11 @@ def apply_nms(locs, cls_scores, anchors,
         img_locs = locs[i] # [1364, 4]
         img_cls = cls_scores[i] # [1364, 2]
 
-        # step 1: turn raw logits into probabilities using softmax
-        # the model outputs raw scores, softmax converts them to 0 to 1 range
-        # column 0 is background probability, column 1 is waldo probability
+        '''
+        step 1: turn raw logits into probabilities using softmax
+        the model outputs raw scores, softmax converts them to 0 to 1 range
+        column 0 is background probability, column 1 is waldo probability
+        '''
         probs = F.softmax(img_cls, dim=1)
         waldo_probs = probs[:, 1] # we only care about the waldo probability
 
@@ -124,9 +126,11 @@ def apply_nms(locs, cls_scores, anchors,
         # step 3: convert to corner format for torchvision nms
         corner_boxes = center_to_corners(decoded_boxes) # [1364, 4] in [x1, y1, x2, y2]
 
-        # step 4: throw away predictions below the confidence threshold
-        # most of the 1364 predictions will have very low confidence
-        # this gets rid of the obvious noise before running nms
+        '''
+        step 4: throw away predictions below the confidence threshold
+        most of the 1364 predictions will have very low confidence
+        this gets rid of the obvious noise before running nms
+        '''
         confident_mask = waldo_probs > confidence_threshold
         confident_boxes = corner_boxes[confident_mask]
         confident_scores = waldo_probs[confident_mask]
@@ -136,10 +140,12 @@ def apply_nms(locs, cls_scores, anchors,
             results.append((torch.zeros(0, 4), torch.zeros(0)))
             continue
 
-        # step 5: run torchvision nms to remove overlapping boxes
-        # it sorts by score, keeps the best one, removes boxes that overlap too much
-        # then moves to the next best and repeats
-        # returns the indices of the boxes we should keep
+        '''
+        step 5: run torchvision nms to remove overlapping boxes
+        it sorts by score, keeps the best one, removes boxes that overlap too much
+        then moves to the next best and repeats
+        returns the indices of the boxes we should keep
+        '''
         keep_indices = nms(confident_boxes, confident_scores, iou_threshold)
 
         # grab only the surviving boxes and scores

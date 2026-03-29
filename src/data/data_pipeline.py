@@ -111,10 +111,12 @@ def tile_image(image_id):
         tile_dir = os.path.join(PROCESSED, f"{tile_size}")
         os.makedirs(tile_dir, exist_ok=True)
 
-        # tile with multiple grid offsets so waldo lands on different boundaries
-        # the (0,0) offset is the original grid, the others shift by half a tile
-        # this means a waldo that was split across two tiles in one grid
-        # might be fully inside a single tile in another grid
+        '''
+        tile with multiple grid offsets so waldo lands on different boundaries
+        the (0,0) offset is the original grid, the others shift by half a tile
+        this means a waldo that was split across two tiles in one grid
+        might be fully inside a single tile in another grid
+        '''
         for ox, oy in TILE_OFFSETS:
             # skip offsets that dont fit in the image
             # no point starting at offset 128 if the image is only 300px wide
@@ -217,10 +219,12 @@ def run_pipeline():
 
     all_tiles = [t for sublist in all_tiles for t in sublist] # flatten
 
-    # run the random crop augmentation to generate extra positive tiles
-    # this takes random 256x256 patches centered around waldo from the larger images
-    # each patch has waldo at a different position with different surrounding context
-    # we import it here so the augmented tiles get included in the same splits
+    '''
+    run the random crop augmentation to generate extra positive tiles
+    this takes random 256x256 patches centered around waldo from the larger images
+    each patch has waldo at a different position with different surrounding context
+    we import it here so the augmented tiles get included in the same splits
+    '''
     from data.augment import run_augmentation
     augmented_tiles = run_augmentation()
     all_tiles.extend(augmented_tiles)
@@ -279,29 +283,35 @@ class WaldoTileDataset(Dataset):
             transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)
         ])
 
-        # color jitter for positive training tiles only
-        # this randomly tweaks brightness, contrast, and saturation each time
-        # so the model sees a slightly different waldo every epoch
-        # we only change colors not positions so the bounding box stays the same
-        # we dont apply this to val/test because we want clean untouched data for evaluation
+        '''
+        color jitter for positive training tiles only
+        this randomly tweaks brightness, contrast, and saturation each time
+        so the model sees a slightly different waldo every epoch
+        we only change colors not positions so the bounding box stays the same
+        we dont apply this to val/test because we want clean untouched data for evaluation
+        '''
         self.color_jitter = transforms.ColorJitter(
             brightness=COLOR_JITTER_BRIGHTNESS,
             contrast=COLOR_JITTER_CONTRAST,
             saturation=COLOR_JITTER_SATURATION
         )
 
-        # additional augmentations for ALL training tiles (not just positive)
-        # these create more visual variety so the model generalizes better
-        # inspired by augmentation techniques used in the FindingWaldo project
-        # (github.com/utsavraj/FindingWaldo) which used 6 different augmentations
-        # we apply these with random probability so not every tile gets every augmentation
+        '''
+        additional augmentations for ALL training tiles (not just positive)
+        these create more visual variety so the model generalizes better
+        inspired by augmentation techniques used in the FindingWaldo project
+        (github.com/utsavraj/FindingWaldo) which used 6 different augmentations
+        we apply these with random probability so not every tile gets every augmentation
+        '''
         #
-        # we originally had random grayscale here too but took it out
-        # waldos whole thing is his red and white stripes
-        # our HSV mask channel is literally built to find red and white pixels
-        # if we convert to grayscale theres no red or white to find anymore
-        # so we were basically telling the model "learn to find waldo by color"
-        # and also "sometimes ignore all color information", which is contradictory
+        '''
+        we originally had random grayscale here too but took it out
+        waldos whole thing is his red and white stripes
+        our HSV mask channel is literally built to find red and white pixels
+        if we convert to grayscale theres no red or white to find anymore
+        so we were basically telling the model "learn to find waldo by color"
+        and also "sometimes ignore all color information", which is contradictory
+        '''
         self.blur = transforms.GaussianBlur(kernel_size=BLUR_KERNEL_SIZE, sigma=(0.1, 1.0))
         self.sharpness = transforms.RandomAdjustSharpness(sharpness_factor=SHARPNESS_FACTOR, p=SHARPNESS_PROBABILITY)
 
@@ -332,10 +342,12 @@ class WaldoTileDataset(Dataset):
         # resize first so all augmentations work on the same size image
         img = img.resize((INPUT_SIZE, INPUT_SIZE))
 
-        # horizontal flip with 50% chance
-        # we do this manually instead of using transforms.RandomHorizontalFlip
-        # because we also need to flip the bounding box x coordinates
-        # waldo looks the same facing left or right so this is a safe augmentation
+        '''
+        horizontal flip with 50% chance
+        we do this manually instead of using transforms.RandomHorizontalFlip
+        because we also need to flip the bounding box x coordinates
+        waldo looks the same facing left or right so this is a safe augmentation
+        '''
         if random.random() < FLIP_PROBABILITY:
             img = TF.hflip(img) # flip the image
             if label == 1:
@@ -384,35 +396,43 @@ def get_dataloader(split="train", tile_size=256, batch_size=BATCH_SIZE, shuffle=
     '''
     dataset = WaldoTileDataset(split=split, tile_size=tile_size)
 
-    # for training we use weighted sampling to handle the class imbalance
-    # we have about 14000 negative tiles but only 56 positive ones
-    # without this the model would almost never see a positive tile during training
-    # the sampler gives positive tiles a higher chance of being picked
-    # we compute the weight dynamically so it adjusts if the dataset changes
+    '''
+    for training we use weighted sampling to handle the class imbalance
+    we have about 14000 negative tiles but only 56 positive ones
+    without this the model would almost never see a positive tile during training
+    the sampler gives positive tiles a higher chance of being picked
+    we compute the weight dynamically so it adjusts if the dataset changes
+    '''
     if split == "train" and AUGMENT_TRAINING:
         num_positive = sum(1 for t in dataset.tiles if t["has_waldo"])
         num_negative = len(dataset.tiles) - num_positive
 
-        # we divide by SAMPLING_BALANCE_FACTOR so its not a full 50/50 split
-        # with factor 5 we get roughly 1 positive for every 5 negatives
-        # full 50/50 would make the model too eager and see waldo everywhere
+        '''
+        we divide by SAMPLING_BALANCE_FACTOR so its not a full 50/50 split
+        with factor 5 we get roughly 1 positive for every 5 negatives
+        full 50/50 would make the model too eager and see waldo everywhere
+        '''
         positive_weight = num_negative / num_positive / SAMPLING_BALANCE_FACTOR
         weights = [positive_weight if t["has_waldo"] else 1.0 for t in dataset.tiles]
 
-        # cap num_samples so each epoch doesnt take forever on large datasets
-        # with 12000+ tiles drawing every single one each epoch is wasteful
-        # the weighted sampler ensures we still see positive tiles frequently
-        # 4000 samples per epoch is enough variety while keeping epochs fast
-        # (4000 / batch_size_8 = 500 batches per epoch instead of 1600+)
+        '''
+        cap num_samples so each epoch doesnt take forever on large datasets
+        with 12000+ tiles drawing every single one each epoch is wasteful
+        the weighted sampler ensures we still see positive tiles frequently
+        4000 samples per epoch is enough variety while keeping epochs fast
+        (4000 / batch_size_8 = 500 batches per epoch instead of 1600+)
+        '''
         epoch_samples = min(len(dataset), 4000)
         sampler = WeightedRandomSampler(weights, num_samples=epoch_samples)
         # cant use shuffle and sampler at the same time, the sampler handles randomness
         loader = DataLoader(dataset, batch_size=batch_size, sampler=sampler,
                             num_workers=4, pin_memory=True, persistent_workers=True)
     elif split == "val":
-        # cap validation samples so we dont spend half the epoch on validation
-        # we just need the val loss direction for early stopping, not exact numbers
-        # 1000 samples is enough to get a stable loss estimate
+        '''
+        cap validation samples so we dont spend half the epoch on validation
+        we just need the val loss direction for early stopping, not exact numbers
+        1000 samples is enough to get a stable loss estimate
+        '''
         val_samples = min(len(dataset), 1000)
         val_sampler = WeightedRandomSampler(
             [1.0] * len(dataset), num_samples=val_samples
@@ -423,10 +443,12 @@ def get_dataloader(split="train", tile_size=256, batch_size=BATCH_SIZE, shuffle=
         loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle,
                             num_workers=4, pin_memory=True, persistent_workers=True)
 
-    # num_workers=4 loads tiles in parallel so the GPU never waits for data
-    # pin_memory=True speeds up CPU to GPU memory transfers
-    # persistent_workers=True keeps the worker processes alive between epochs
-    # so they dont have to restart every time (saves ~2s per epoch)
+    '''
+    num_workers=4 loads tiles in parallel so the GPU never waits for data
+    pin_memory=True speeds up CPU to GPU memory transfers
+    persistent_workers=True keeps the worker processes alive between epochs
+    so they dont have to restart every time (saves ~2s per epoch)
+    '''
     return loader
 
 

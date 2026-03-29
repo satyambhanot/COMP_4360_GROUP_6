@@ -27,10 +27,12 @@ sys.path.insert(0, os.path.dirname(__file__))
 import torch
 import torch.nn.functional as F
 
-# standard pytorch performance flags
-# cudnn.benchmark auto tunes the best convolution algorithm for our fixed input size
-# this gives 10-20% speedup on all conv layers since the tuned algo gets reused every batch
-# only works when input dimensions dont change between batches (ours are always 256x256)
+'''
+standard pytorch performance flags
+cudnn.benchmark auto tunes the best convolution algorithm for our fixed input size
+this gives 10-20% speedup on all conv layers since the tuned algo gets reused every batch
+only works when input dimensions dont change between batches (ours are always 256x256)
+'''
 torch.backends.cudnn.benchmark = True
 # disable autograd anomaly detection since were not debugging NaN issues
 # this removes per operation checking overhead
@@ -173,9 +175,11 @@ def compute_loss(locs, cls_scores, anchors, labels, bboxes):
     num_anchors = locs.shape[1]
 
     total_cls_loss = 0.0
-    # we initialize loc_loss as a tensor on the same device as the predictions
-    # so the return type is always consistent whether or not we had positive tiles
-    # if we used a plain float (0.0) it would cause issues when we call .item() later
+    '''
+    we initialize loc_loss as a tensor on the same device as the predictions
+    so the return type is always consistent whether or not we had positive tiles
+    if we used a plain float (0.0) it would cause issues when we call .item() later
+    '''
     total_loc_loss = torch.tensor(0.0, device=locs.device)
     num_positive = 0 # count how many positive anchors we found across the batch
 
@@ -184,9 +188,11 @@ def compute_loss(locs, cls_scores, anchors, labels, bboxes):
         img_cls = cls_scores[i] # [1364, 2]
         label = labels[i].item() # 0 or 1
 
-        # create classification targets for every anchor
-        # on negative tiles: all anchors should predict background (class 0)
-        # on positive tiles: matched anchors predict waldo (class 1), rest predict background
+        '''
+        create classification targets for every anchor
+        on negative tiles: all anchors should predict background (class 0)
+        on positive tiles: matched anchors predict waldo (class 1), rest predict background
+        '''
         cls_targets = torch.zeros(num_anchors, dtype=torch.long, device=locs.device)
 
         if label == 1:
@@ -194,24 +200,30 @@ def compute_loss(locs, cls_scores, anchors, labels, bboxes):
             # bboxes are already on the right device because we moved them in the training loop
             gt_box = bbox_to_center(bboxes[i])
 
-            # find which anchor overlaps the most with the ground truth
-            # we use IoU (intersection over union) to measure overlap
-            # anchors are already on the right device from concatenate_all_heads
+            '''
+            find which anchor overlaps the most with the ground truth
+            we use IoU (intersection over union) to measure overlap
+            anchors are already on the right device from concatenate_all_heads
+            '''
             ious = compute_iou(gt_box, anchors)
             best_anchor_idx = ious.argmax().item()
 
-            # also mark any anchor with IoU above 0.5 as positive
-            # this gives the model more positive examples to learn from
-            # instead of just the single best matching anchor
+            '''
+            also mark any anchor with IoU above 0.5 as positive
+            this gives the model more positive examples to learn from
+            instead of just the single best matching anchor
+            '''
             positive_mask = ious > 0.5
             positive_mask[best_anchor_idx] = True # make sure the best one is always included
 
             # set classification targets for matched anchors to waldo (class 1)
             cls_targets[positive_mask] = 1
 
-            # compute localization loss only for the matched anchors
-            # we encode the ground truth as offsets from each matched anchor
-            # then compare against what the model predicted
+            '''
+            compute localization loss only for the matched anchors
+            we encode the ground truth as offsets from each matched anchor
+            then compare against what the model predicted
+            '''
             positive_indices = positive_mask.nonzero(as_tuple=True)[0]
             num_positive += len(positive_indices)
 
@@ -221,16 +233,20 @@ def compute_loss(locs, cls_scores, anchors, labels, bboxes):
                     target_offsets = encode_ground_truth(gt_box, anchors[idx])
                     predicted_offsets = img_locs[idx]
 
-                    # smooth L1 loss for bounding box regression
-                    # this is the standard loss used in SSD and other object detectors
-                    # its less sensitive to outliers than MSE loss
-                    # torch.nn.functional.smooth_l1_loss is from pytorch
+                    '''
+                    smooth L1 loss for bounding box regression
+                    this is the standard loss used in SSD and other object detectors
+                    its less sensitive to outliers than MSE loss
+                    torch.nn.functional.smooth_l1_loss is from pytorch
+                    '''
                     total_loc_loss += F.smooth_l1_loss(predicted_offsets, target_offsets)
 
-        # classification loss using focal cross entropy
-        # standard cross entropy treats every anchor equally but most anchors are
-        # easy background predictions. focal loss down weights those easy ones
-        # so the model focuses on the confusing anchors near waldo like characters
+        '''
+        classification loss using focal cross entropy
+        standard cross entropy treats every anchor equally but most anchors are
+        easy background predictions. focal loss down weights those easy ones
+        so the model focuses on the confusing anchors near waldo like characters
+        '''
         ce_loss = F.cross_entropy(img_cls, cls_targets, reduction='none')
         pt = torch.exp(-ce_loss)
         focal_weight = FOCAL_LOSS_ALPHA * (1.0 - pt) ** FOCAL_LOSS_GAMMA
@@ -284,9 +300,11 @@ def train_one_epoch(model, dataloader, optimizer, device, scaler=None):
         if (batch_idx + 1) % 100 == 0 or batch_idx == 0:
             print(f"  batch {batch_idx + 1}/{total_batches}", flush=True)
 
-        # mixed precision: run the forward pass in float16 for speed
-        # the autocast context manager handles the dtype conversions automatically
-        # we only use AMP on CUDA (not MPS or CPU) because thats where it helps
+        '''
+        mixed precision: run the forward pass in float16 for speed
+        the autocast context manager handles the dtype conversions automatically
+        we only use AMP on CUDA (not MPS or CPU) because thats where it helps
+        '''
         with torch.amp.autocast("cuda", enabled=use_amp):
             if MODEL_TYPE in ("pretrained_ssd", "retinanet"):
                 targets = format_targets(labels, bboxes, device)
@@ -360,9 +378,11 @@ def validate(model, dataloader, device):
     # torch.no_grad tells pytorch not to track gradients
     # this saves memory and speeds things up since we dont need gradients for validation
     #
-    # for torchvision models (SSD and RetinaNet) we need train mode to get losses
-    # because in eval mode they return detections instead of losses
-    # we still use no_grad so no weights get updated
+    '''
+    for torchvision models (SSD and RetinaNet) we need train mode to get losses
+    because in eval mode they return detections instead of losses
+    we still use no_grad so no weights get updated
+    '''
     if MODEL_TYPE in ("pretrained_ssd", "retinanet"):
         model.train()
 
@@ -435,11 +455,13 @@ def run_training(checkpoint_dir=None, model_override=None):
     print(f"model type: {model_type}")
     print(f"model created with {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable parameters")
 
-    # create the optimizer
-    # for pretrained models (SSD and RetinaNet) the backbone is frozen
-    # so we only train the detection heads and the 1x1 preprocessing conv
-    # SGD with momentum works well for fine tuning pretrained models
-    # weight decay (L2 regularization) prevents the heads from overfitting
+    '''
+    create the optimizer
+    for pretrained models (SSD and RetinaNet) the backbone is frozen
+    so we only train the detection heads and the 1x1 preprocessing conv
+    SGD with momentum works well for fine tuning pretrained models
+    weight decay (L2 regularization) prevents the heads from overfitting
+    '''
     if MODEL_TYPE in ("pretrained_ssd", "retinanet") and hasattr(model, 'get_param_groups'):
         head_params = model.get_param_groups()
         optimizer = torch.optim.SGD(
@@ -454,19 +476,23 @@ def run_training(checkpoint_dir=None, model_override=None):
             lr=LEARNING_RATE
         )
 
-    # load the train and validation dataloaders
-    # the train loader uses weighted sampling to handle class imbalance
-    # the val loader just loads tiles normally without any augmentation
+    '''
+    load the train and validation dataloaders
+    the train loader uses weighted sampling to handle class imbalance
+    the val loader just loads tiles normally without any augmentation
+    '''
     print("loading data...")
     train_loader = get_dataloader(split="train", tile_size=256, batch_size=BATCH_SIZE)
     val_loader = get_dataloader(split="val", tile_size=256, batch_size=BATCH_SIZE, shuffle=False)
     print(f"  train: {len(train_loader.dataset)} tiles")
     print(f"  val: {len(val_loader.dataset)} tiles")
 
-    # learning rate scheduler
-    # if val loss stops improving for LR_SCHEDULER_PATIENCE epochs, cut the learning rate
-    # this helps the model converge when its stuck at a plateau instead of bouncing around
-    # torch.optim.lr_scheduler.ReduceLROnPlateau is a standard pytorch scheduler
+    '''
+    learning rate scheduler
+    if val loss stops improving for LR_SCHEDULER_PATIENCE epochs, cut the learning rate
+    this helps the model converge when its stuck at a plateau instead of bouncing around
+    torch.optim.lr_scheduler.ReduceLROnPlateau is a standard pytorch scheduler
+    '''
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
         mode="min", # we want to minimize val loss
@@ -474,11 +500,13 @@ def run_training(checkpoint_dir=None, model_override=None):
         factor=LR_SCHEDULER_FACTOR
     )
 
-    # mixed precision training with automatic gradient scaling
-    # AMP (automatic mixed precision) runs the forward pass in float16
-    # which is roughly 2x faster and uses half the GPU memory
-    # the GradScaler adjusts gradient magnitudes to prevent underflow in float16
-    # we only use this on CUDA since MPS and CPU dont benefit from AMP
+    '''
+    mixed precision training with automatic gradient scaling
+    AMP (automatic mixed precision) runs the forward pass in float16
+    which is roughly 2x faster and uses half the GPU memory
+    the GradScaler adjusts gradient magnitudes to prevent underflow in float16
+    we only use this on CUDA since MPS and CPU dont benefit from AMP
+    '''
     scaler = torch.amp.GradScaler("cuda") if torch.cuda.is_available() else None
     if scaler:
         print(f"  using mixed precision (AMP) for faster training")

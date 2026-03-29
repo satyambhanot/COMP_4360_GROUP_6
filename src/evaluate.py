@@ -66,9 +66,11 @@ def load_model():
         print("you need to train the model first by running: python train.py")
         return None
 
-    # load the checkpoint first to check which model type was used during training
-    # map_location makes sure it works even if the checkpoint was saved on GPU
-    # but we are loading on CPU or vice versa
+    '''
+    load the checkpoint first to check which model type was used during training
+    map_location makes sure it works even if the checkpoint was saved on GPU
+    but we are loading on CPU or vice versa
+    '''
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
 
     # check which model was used for training
@@ -179,9 +181,11 @@ def run_predictions(model, dataloader, device):
         for images, labels, bboxes in dataloader:
             images = images.to(device, non_blocking=True)
 
-            # HSV pre filter: check each tile for red/white pixels before running the model
-            # compute the HSV mask and see what fraction of pixels light up
-            # tiles with no waldo colors get marked as negative without model inference
+            '''
+            HSV pre filter: check each tile for red/white pixels before running the model
+            compute the HSV mask and see what fraction of pixels light up
+            tiles with no waldo colors get marked as negative without model inference
+            '''
             hsv_mask = apply_hsv_mask(images)
             # hsv_mask is [N, 1, H, W], compute the mean per tile
             hsv_scores = hsv_mask.view(hsv_mask.shape[0], -1).mean(dim=1) # [N]
@@ -189,10 +193,12 @@ def run_predictions(model, dataloader, device):
             # figure out which tiles pass the HSV filter
             passes_filter = hsv_scores >= HSV_FILTER_THRESHOLD
 
-            # prepare default results for every tile in this batch
-            # we fill in the defaults first (assume negative) then overwrite
-            # with actual model predictions for tiles that passed the filter
-            # this keeps results in the correct order matching the dataset
+            '''
+            prepare default results for every tile in this batch
+            we fill in the defaults first (assume negative) then overwrite
+            with actual model predictions for tiles that passed the filter
+            this keeps results in the correct order matching the dataset
+            '''
             batch_preds = [0] * len(labels)
             batch_confs = [0.0] * len(labels)
             batch_nms = [(torch.zeros(0, 4), torch.zeros(0))] * len(labels)
@@ -215,9 +221,11 @@ def run_predictions(model, dataloader, device):
             filtered_images = images[passes_filter]
             filtered_indices = passes_filter.nonzero(as_tuple=True)[0]
 
-            # also run on flipped versions if TTA is enabled
-            # waldo looks the same facing left or right so flipping is safe
-            # we take the max confidence between original and flipped
+            '''
+            also run on flipped versions if TTA is enabled
+            waldo looks the same facing left or right so flipping is safe
+            we take the max confidence between original and flipped
+            '''
             flipped_confs = {}
             if USE_TTA:
                 flipped_images = torch.flip(filtered_images, dims=[3]) # flip horizontally

@@ -21,9 +21,11 @@ from config import (
 )
 
 
-# how many random crops to take per image
-# more crops = more positive tiles but also more disk space and tiling time
-# 15 is a good balance, gives us roughly 15 * number_of_large_images new positives
+'''
+how many random crops to take per image
+more crops = more positive tiles but also more disk space and tiling time
+15 is a good balance, gives us roughly 15 * number_of_large_images new positives
+'''
 CROPS_PER_IMAGE = 15
 
 # minimum image size to bother cropping from
@@ -103,10 +105,12 @@ def generate_random_crops(image_id, img, img_w, img_h, waldo_bbox, tile_size=INP
         list of tile info dicts (same format as data_pipeline tiles)
     '''
     #
-    # the key insight is that waldo can be anywhere within the crop
-    # not just in the center. this gives us crops where waldo is in the
-    # top left, bottom right, partially cut off at an edge, etc.
-    # each of these is a genuinely different training example
+    '''
+    the key insight is that waldo can be anywhere within the crop
+    not just in the center. this gives us crops where waldo is in the
+    top left, bottom right, partially cut off at an edge, etc.
+    each of these is a genuinely different training example
+    '''
 
     tile_dir = os.path.join(PROCESSED, str(tile_size))
     os.makedirs(tile_dir, exist_ok=True)
@@ -114,11 +118,13 @@ def generate_random_crops(image_id, img, img_w, img_h, waldo_bbox, tile_size=INP
     tiles_info = []
     wx1, wy1, wx2, wy2 = waldo_bbox
 
-    # figure out the valid range for crop top-left corner
-    # the crop must overlap waldo so we constrain the range
-    # if waldo is at (100, 200) and tile is 256, the crop x can be
-    # anywhere from (100 - 256) to (100 + waldo_width) roughly
-    # but also must stay within image bounds
+    '''
+    figure out the valid range for crop top-left corner
+    the crop must overlap waldo so we constrain the range
+    if waldo is at (100, 200) and tile is 256, the crop x can be
+    anywhere from (100 - 256) to (100 + waldo_width) roughly
+    but also must stay within image bounds
+    '''
     x_min = max(0, wx2 - tile_size) # crop must start before waldo ends
     x_max = min(img_w - tile_size, wx1) # crop must end after waldo starts
     y_min = max(0, wy2 - tile_size)
@@ -168,9 +174,11 @@ def generate_random_crops(image_id, img, img_w, img_h, waldo_bbox, tile_size=INP
             "local_bbox": local_bbox
         })
 
-        # also save a horizontally flipped version
-        # waldo looks the same facing either direction
-        # and the flipped crop has different pixel patterns around him
+        '''
+        also save a horizontally flipped version
+        waldo looks the same facing either direction
+        and the flipped crop has different pixel patterns around him
+        '''
         flipped_img = tile_img.transpose(Image.FLIP_LEFT_RIGHT)
         flip_name = f"img{image_id}_{tile_size}_rand{len(tiles_info)}_flip.jpg"
         flipped_img.save(os.path.join(tile_dir, flip_name))
@@ -228,9 +236,11 @@ def run_augmentation():
         img = Image.open(img_path)
         img_w, img_h = img.size
 
-        # skip images that are too small for meaningful random crops
-        # the tiny findingwaldo crops are like 50x50 pixels
-        # theres no point trying to take 256x256 random crops from those
+        '''
+        skip images that are too small for meaningful random crops
+        the tiny findingwaldo crops are like 50x50 pixels
+        theres no point trying to take 256x256 random crops from those
+        '''
         if img_w < MIN_IMAGE_SIZE or img_h < MIN_IMAGE_SIZE:
             skipped += 1
             continue

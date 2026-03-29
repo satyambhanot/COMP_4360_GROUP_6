@@ -112,6 +112,15 @@ class WaldoDetector(nn.Module):
         self.feature_sizes = all_sizes[:num_heads]
 
     def forward(self, images):
+        '''
+        runs a batch of tiles through preprocessing, backbone, and SSD heads
+
+        args:
+            images: batch of tiles [N, 3, 256, 256]
+
+        returns:
+            locs [N, 1364, 4], cls_scores [N, 1364, 2], anchors [1364, 4]
+        '''
         # images come in as [N, 3, 256, 256] from the dataloader
 
         # step 1: preprocessing
@@ -233,21 +242,27 @@ class WaldoDetectorPretrained(nn.Module):
             param.requires_grad = False
 
     def get_param_groups(self):
-        # returns the trainable parameter groups
-        # backbone is frozen so we only return head params and the 1x1 conv
-        # train.py uses this to set up the optimizer
+        '''
+        returns only the trainable parameters (heads + 1x1 conv)
+        backbone is frozen so its params are excluded
+        '''
         head_params = list(self.ssd.head.parameters())
-        # include the 1x1 conv since its also learning from scratch
         if self.channel_conv is not None:
             head_params += list(self.channel_conv.parameters())
         return head_params
 
     def forward(self, images, targets=None):
-        # images is a batched tensor [N, 3, 256, 256] from our dataloader
-        # the dataloader already applied ImageNet normalization
-        # but torchvision SSD has its own internal normalization
-        # so we need to undo ours first, then let the SSD apply its own
-        # otherwise the images get double normalized which corrupts the input
+        '''
+        preprocesses tiles and runs them through the torchvision SSD
+
+        args:
+            images: batch of tiles [N, 3, 256, 256]
+            targets: list of target dicts for training (None for eval)
+
+        returns:
+            training: loss dict with classification and bbox_regression
+            eval: list of detection dicts with boxes, scores, labels
+        '''
 
         # step 1: apply our preprocessing (same as WaldoDetector)
         # preprocessing needs the ImageNet normalized input to work correctly
@@ -369,16 +384,27 @@ class WaldoDetectorRetinaNet(nn.Module):
             param.requires_grad = False
 
     def get_param_groups(self):
-        # returns trainable params only (heads + 1x1 conv, backbone is frozen)
+        '''
+        returns only the trainable parameters (heads + 1x1 conv)
+        backbone is frozen so its params are excluded
+        '''
         head_params = list(self.detector.head.parameters())
         if self.channel_conv is not None:
             head_params += list(self.channel_conv.parameters())
         return head_params
 
     def forward(self, images, targets=None):
-        # same preprocessing flow as the pretrained SSD
-        # add HSV and Sobel channels, merge back to 3, undo normalization,
-        # scale to 0-255, resize to the models expected input size
+        '''
+        preprocesses tiles and runs them through torchvision RetinaNet
+
+        args:
+            images: batch of tiles [N, 3, 256, 256]
+            targets: list of target dicts for training (None for eval)
+
+        returns:
+            training: loss dict with classification and bbox_regression
+            eval: list of detection dicts with boxes, scores, labels
+        '''
 
         # step 1: apply our preprocessing
         if self.use_hsv and self.use_sobel:
@@ -423,9 +449,18 @@ class WaldoDetectorRetinaNet(nn.Module):
 
 
 def create_model(use_hsv=True, use_sobel=True, use_pretrained_backbone=True, num_heads=NUM_SSD_HEADS):
-    # helper function that creates the right model based on MODEL_TYPE config
-    # this way train.py and evaluate.py dont need to know which model class to use
-    # they just call create_model() and get the right one
+    '''
+    factory function that creates the right model based on MODEL_TYPE config
+
+    args:
+        use_hsv: include HSV mask channel (for ablation)
+        use_sobel: include Sobel edge channel (for ablation)
+        use_pretrained_backbone: use ImageNet weights for custom SSD backbone
+        num_heads: number of SSD heads for custom SSD (default 5)
+
+    returns:
+        model with model_type attribute set
+    '''
 
     if MODEL_TYPE == "retinanet":
         model = WaldoDetectorRetinaNet(use_hsv=use_hsv, use_sobel=use_sobel)

@@ -161,24 +161,3 @@ def preprocess_batch(images):
     sobel_of_hsv = torch.sqrt(gx ** 2 + gy ** 2)  # [N, 1, H, W]
 
     return torch.cat([images, hsv_mask, sobel_of_hsv], dim=1)  # [N, 5, H, W]
-
-
-if __name__ == "__main__":
-    import sys, os
-    sys.path.insert(0, os.path.dirname(__file__))
-    from data_pipeline import get_dataloader
-
-    # test with real tiles
-    loader = get_dataloader(split="train", tile_size=256, batch_size=4)
-    images, labels, bboxes = next(iter(loader))
-
-    print(f"input shape: {images.shape}")  # [4, 3, 256, 256]
-
-    hsv_mask = apply_hsv_mask(images)
-    print(f"hsv mask shape: {hsv_mask.shape}")  # [4, 1, 256, 256]
-
-    sobel_raw = apply_sobel_edge_detection(images)
-    print(f"sobel on raw image shape: {sobel_raw.shape}")  # [4, 1, 256, 256]
-
-    combined = preprocess_batch(images)
-    print(f"combined shape: {combined.shape}")  # [4, 5, 256, 256]

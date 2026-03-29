@@ -63,7 +63,7 @@ if [ -d "data/processed" ]; then
     echo "cleaning old tiles..."
     rm -rf data/processed
 fi
-$PYTHON src/data_pipeline.py
+$PYTHON src/data/data_pipeline.py
 echo ""
 
 # step 3: show model summary
@@ -87,7 +87,7 @@ echo "  Step 5: Training"
 echo "========================================"
 echo "this takes a while. RetinaNet at 512x512 is about 5-7 min per epoch"
 echo ""
-$PYTHON train.py
+$PYTHON src/train.py
 echo ""
 
 # step 6: sanity check
@@ -101,7 +101,7 @@ echo ""
 echo "========================================"
 echo "  Step 7: Evaluation"
 echo "========================================"
-$PYTHON evaluate.py
+$PYTHON src/evaluate.py
 echo ""
 
 # step 8: summary

@@ -16,8 +16,8 @@ import os
 import json
 import time
 
-# add the src folder to the path so we can import our modules
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+# add this directory to the path so we can import our modules
+sys.path.insert(0, os.path.dirname(__file__))
 
 import torch
 import matplotlib
@@ -40,7 +40,7 @@ from config import (
 from data.pre_processing import apply_hsv_mask
 
 # where we save all the output images and results
-RESULTS_DIR = os.path.join(os.path.dirname(__file__), "results")
+RESULTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "results")
 
 device = get_device()
 print(f"using device: {device}")

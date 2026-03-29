@@ -22,7 +22,7 @@ import random
 import shutil
 import xml.etree.ElementTree as ET
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+sys.path.insert(0, os.path.dirname(__file__))
 
 from config import (
     RAW_IMAGES, RAW_ANNOTATIONS,

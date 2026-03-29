@@ -21,8 +21,8 @@ import os
 import time
 import json
 
-# add the src folder to the path so we can import our modules
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+# add this directory to the path so we can import our modules
+sys.path.insert(0, os.path.dirname(__file__))
 
 import torch
 import torch.nn.functional as F

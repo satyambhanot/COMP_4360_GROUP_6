@@ -132,9 +132,11 @@ if __name__ == "__main__":
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     total_start = time.time()
 
-    # run each variant as a separate process
-    # sleep 5 seconds between variants to give the system time to fully
-    # release GPU memory from the previous process before the next one starts
+    '''
+    run each variant as a separate process
+    sleep 5 seconds between variants to give the system time to fully
+    release GPU memory from the previous process before the next one starts
+    '''
     for i, (name, use_hsv, use_sobel) in enumerate(VARIANTS):
         if i > 0:
             print("\n  waiting 5s for GPU memory to fully release...", flush=True)

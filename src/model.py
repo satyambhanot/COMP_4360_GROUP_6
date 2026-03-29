@@ -42,6 +42,11 @@ from config import (
 
 
 class WaldoDetector(nn.Module):
+    '''
+    custom SSD detector with MobileNetV2 backbone and 5 detection heads
+    our baseline model built from scratch based on the Lamb & Chuah paper
+    backbone is frozen (ImageNet pretrained), only heads are trainable
+    '''
 
     def __init__(self, use_hsv=True, use_sobel=True, use_pretrained=True, num_heads=NUM_SSD_HEADS):
         super().__init__()
@@ -166,19 +171,18 @@ class WaldoDetector(nn.Module):
 
 
 class WaldoDetectorPretrained(nn.Module):
-    # this model uses a full SSD300 VGG16 pretrained on COCO (330k images, 90 classes)
-    # the detection heads already know how to find objects from COCO training
-    # we just replace the classification head from 91 classes to 2 (waldo + background)
-    # and add our HSV + Sobel preprocessing as extra input channels
-    #
-    # the big advantage over our custom WaldoDetector is that the detection heads
-    # dont start from random weights, they already know how to match anchors to objects
-    # and predict bounding box offsets. they just need to learn what waldo looks like
-    #
-    # torchvision SSD has a different interface than our custom model:
-    #   training: takes (images_list, targets_list) and returns a loss dict
-    #   eval: takes (images_list) and returns detection dicts with boxes, scores, labels
-    # so train.py and evaluate.py need to handle both formats
+    '''
+    SSD300 VGG16 pretrained on COCO (330k images, 90 classes)
+    we replace the classification head from 91 classes to 2 (waldo + background)
+    and add our HSV + Sobel preprocessing as extra input channels
+
+    advantage over custom WaldoDetector: detection heads already know how to
+    find objects from COCO training, they just need to learn what waldo looks like
+
+    torchvision interface:
+      training: model(images_list, targets_list) returns loss dict
+      eval: model(images_list) returns detection dicts with boxes, scores, labels
+    '''
 
     def __init__(self, use_hsv=True, use_sobel=True):
         super().__init__()
@@ -297,28 +301,21 @@ class WaldoDetectorPretrained(nn.Module):
 
 
 class WaldoDetectorRetinaNet(nn.Module):
-    # RetinaNet with ResNet50 backbone and Feature Pyramid Network (FPN)
-    # this is the natural evolution of SSD in the one stage detector family
-    # the paper that introduced it (Lin et al, Focal Loss for Dense Object Detection,
-    # ICCV 2017) literally invented focal loss to solve the class imbalance problem
-    # which is exactly what we struggle with in wheres waldo
-    #
-    # key advantages over SSD300:
-    #   1. Feature Pyramid Network: detects objects at multiple scales by combining
-    #      features from different backbone layers. SSD only uses features from
-    #      specific layers which means it can miss objects at certain sizes
-    #   2. larger input: we feed 512x512 instead of SSD's 300x300
-    #      more pixels means more context around waldo, which helps the model
-    #      tell him apart from other characters in the cluttered scenes
-    #   3. ResNet50 backbone: deeper and more powerful than VGG16
-    #      better at extracting the fine details like waldos stripe pattern
-    #   4. focal loss built in: the architecture was designed from the ground up
-    #      to handle class imbalance. we dont need to manually add focal loss
-    #      like we did for the pretrained SSD
-    #
-    # torchvision interface is the same as SSD:
-    #   training: model(images, targets) returns loss dict
-    #   eval: model(images) returns list of detection dicts
+    '''
+    RetinaNet with ResNet50 + Feature Pyramid Network (FPN)
+    our best performing model, the natural evolution of SSD
+    from the paper by Lin et al (Focal Loss, ICCV 2017)
+
+    key advantages over SSD300:
+      1. FPN: multi scale detection from different backbone layers
+      2. 512x512 input: more context than SSDs 300x300
+      3. ResNet50: deeper backbone, better feature extraction
+      4. focal loss built in: designed for class imbalance
+
+    same torchvision interface as SSD:
+      training: model(images, targets) returns loss dict
+      eval: model(images) returns list of detection dicts
+    '''
 
     def __init__(self, use_hsv=True, use_sobel=True):
         super().__init__()

@@ -39,7 +39,6 @@ from config import (
     PRETRAINED_SSD_INPUT_SIZE, RETINANET_INPUT_SIZE,
     IMAGENET_MEAN, IMAGENET_STD
 )
-from data_pipeline import get_dataloader
 
 
 class WaldoDetector(nn.Module):

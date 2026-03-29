@@ -31,7 +31,7 @@ from data_pipeline import get_dataloader
 from nms import apply_nms
 from utils import get_device
 from config import (
-    CHECKPOINTS_DIR, BATCH_SIZE, INPUT_SIZE,
+    BATCH_SIZE, INPUT_SIZE,
     IMAGENET_MEAN, IMAGENET_STD, RAW_IMAGES,
     MODEL_TYPE, NMS_CONFIDENCE_THRESHOLD,
     HSV_FILTER_THRESHOLD, USE_TTA,

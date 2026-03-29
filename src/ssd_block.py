@@ -11,7 +11,6 @@ the feature map starts at 16x16 from the backbone and each block halves it
 this follows the SSD architecture from Liu et al (ECCV 2016)
 '''
 
-import torch
 import torch.nn as nn
 
 

@@ -13,7 +13,7 @@ this file does three things:
 '''
 
 import torch
-from config import NUM_ANCHORS, NUM_CLASSES, INPUT_SIZE
+from config import NUM_CLASSES, INPUT_SIZE
 
 
 def generate_anchors(feature_size, image_size=INPUT_SIZE):

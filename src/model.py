@@ -64,7 +64,7 @@ from torchvision import models
 from torchvision.models.detection import ssd300_vgg16, retinanet_resnet50_fpn_v2
 from torchvision.models.detection.ssd import SSDClassificationHead
 
-from pre_processing import preprocess_batch, ApplyHSVMask, ApplySobelEdgeDetection
+from pre_processing import preprocess_batch, apply_hsv_mask, apply_sobel_edge_detection
 from ssd_block import ssd_block
 from anchors import concatenate_all_heads
 from config import (
@@ -155,13 +155,13 @@ class WaldoDetector(nn.Module):
             x = preprocess_batch(images) # [N, 5, 256, 256]
         elif self.use_hsv and not self.use_sobel:
             # only HSV mask, no sobel edges (for ablation study 1)
-            hsv_mask = ApplyHSVMask(images)
+            hsv_mask = apply_hsv_mask(images)
             x = torch.cat([images, hsv_mask], dim=1) # [N, 4, 256, 256]
         elif not self.use_hsv and self.use_sobel:
             # only sobel edges, no HSV mask (for ablation study 1)
-            # we reuse the existing ApplySobelEdgeDetection function from pre_processing.py
+            # we reuse the existing apply_sobel_edge_detection function from pre_processing.py
             # instead of duplicating the sobel code here
-            sobel = ApplySobelEdgeDetection(images)
+            sobel = apply_sobel_edge_detection(images)
             x = torch.cat([images, sobel], dim=1) # [N, 4, 256, 256]
         else:
             # no preprocessing at all, just raw RGB (for ablation study)
@@ -287,10 +287,10 @@ class WaldoDetectorPretrained(nn.Module):
         if self.use_hsv and self.use_sobel:
             x = preprocess_batch(images)
         elif self.use_hsv and not self.use_sobel:
-            hsv_mask = ApplyHSVMask(images)
+            hsv_mask = apply_hsv_mask(images)
             x = torch.cat([images, hsv_mask], dim=1)
         elif not self.use_hsv and self.use_sobel:
-            sobel = ApplySobelEdgeDetection(images)
+            sobel = apply_sobel_edge_detection(images)
             x = torch.cat([images, sobel], dim=1)
         else:
             x = images
@@ -423,10 +423,10 @@ class WaldoDetectorRetinaNet(nn.Module):
         if self.use_hsv and self.use_sobel:
             x = preprocess_batch(images)
         elif self.use_hsv and not self.use_sobel:
-            hsv_mask = ApplyHSVMask(images)
+            hsv_mask = apply_hsv_mask(images)
             x = torch.cat([images, hsv_mask], dim=1)
         elif not self.use_hsv and self.use_sobel:
-            sobel = ApplySobelEdgeDetection(images)
+            sobel = apply_sobel_edge_detection(images)
             x = torch.cat([images, sobel], dim=1)
         else:
             x = images

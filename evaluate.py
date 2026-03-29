@@ -33,7 +33,7 @@ from config import (
     HSV_FILTER_THRESHOLD, USE_TTA,
     RETINANET_INPUT_SIZE
 )
-from pre_processing import ApplyHSVMask
+from pre_processing import apply_hsv_mask
 
 # where we save all the output images and results
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), "results")
@@ -162,7 +162,7 @@ def run_predictions(model, dataloader, device):
             # HSV pre filter: check each tile for red/white pixels before running the model
             # compute the HSV mask and see what fraction of pixels light up
             # tiles with no waldo colors get marked as negative without model inference
-            hsv_mask = ApplyHSVMask(images)
+            hsv_mask = apply_hsv_mask(images)
             # hsv_mask is [N, 1, H, W], compute the mean per tile
             hsv_scores = hsv_mask.view(hsv_mask.shape[0], -1).mean(dim=1) # [N]
 

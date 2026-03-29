@@ -1,7 +1,13 @@
-# config.py
-# all the settings for the waldo detector live here
-# instead of hunting through every file to change a number, just change it here
-# every other file imports from this one
+'''
+config.py
+central configuration file for the wheres waldo detection project
+all the settings live here so we dont have to hunt through every file
+to change a number. every other file imports from this one.
+
+includes: file paths, tile sizes, preprocessing thresholds, model architecture
+settings, training hyperparameters, augmentation settings, and evaluation
+thresholds. change settings here instead of editing individual files.
+'''
 
 import os
 

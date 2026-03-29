@@ -32,7 +32,7 @@ from model import WaldoDetectorRetinaNet
 from data_pipeline import get_dataloader
 from nms import apply_nms
 from utils import get_device
-from pre_processing import ApplyHSVMask
+from pre_processing import apply_hsv_mask
 from config import (
     BATCH_SIZE, INPUT_SIZE, NMS_CONFIDENCE_THRESHOLD,
     HSV_FILTER_THRESHOLD, USE_TTA, RETINANET_INPUT_SIZE

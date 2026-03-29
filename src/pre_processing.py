@@ -1,20 +1,21 @@
-# pre_processing.py
-# takes image tiles and adds extra channels that help the model spot waldo
-# we concatenate the original RGB with a HSV color mask and sobel edges of the HSV mask
-# so instead of just 3 channels (RGB) the model gets 5 channels (RGB + HSV mask + edges of HSV)
-#
-# originally we ran sobel on the full grayscale image which found edges of everything
-# buildings, people, trees, signs, all creating edges that have nothing to do with waldo
-# we realized it makes more sense to run sobel on the HSV mask instead
-# that way the edge channel only shows edges around red and white regions
-# which is basically the outline of waldos stripes
-# much more focused and useful than edges of random stuff in the background
-#
-# we kept the old ApplySobelEdgeDetection function around in case we want to
-# compare the two approaches in our ablation studies later
+'''
+pre_processing.py
+takes image tiles and adds extra channels that help the model spot waldo
+we concatenate the original RGB with a HSV color mask and sobel edges
+so instead of just 3 channels (RGB) the model gets 5 channels
+
+originally we ran sobel on the full grayscale image which found edges of
+everything: buildings, people, trees, signs. we realized it makes more sense
+to run sobel on the HSV mask instead. that way the edge channel only shows
+edges around red and white regions which is basically waldos stripe outline.
+
+we kept the old apply_sobel_edge_detection function around for the ablation
+studies where we compare different preprocessing approaches
+'''
 
 import torch
 import torch.nn.functional as F
+
 from config import (
     IMAGENET_MEAN, IMAGENET_STD,
     RED_HUE_MAX, RED_HUE_MIN, RED_SAT_MIN, RED_VAL_MIN,
@@ -22,10 +23,19 @@ from config import (
 )
 
 
-def RGBtoHSV(images): # converts normalized RGB images to HSV color space
-    # undo the ImageNet normalization first
-    # we use .to(images.device) so these tensors end up on the same device as the input
-    # without this it crashes on GPU because mean/std would be on CPU but images on GPU
+def rgb_to_hsv(images):
+    '''
+    converts a batch of normalized RGB images to HSV color space
+    undoes the ImageNet normalization first since HSV needs raw 0-1 RGB values
+
+    args:
+        images: batch of ImageNet normalized images [N, 3, H, W]
+
+    returns:
+        HSV tensor [N, 3, H, W] where channels are hue (0-360), saturation (0-1), value (0-1)
+    '''
+    # undo ImageNet normalization to get back to 0-1 range
+    # .to(images.device) so tensors end up on GPU if input is on GPU
     mean = torch.tensor(IMAGENET_MEAN).view(1, 3, 1, 1).to(images.device)
     std  = torch.tensor(IMAGENET_STD).view(1, 3, 1, 1).to(images.device)
     rgb  = (images * std + mean).clamp(0, 1)
@@ -36,7 +46,7 @@ def RGBtoHSV(images): # converts normalized RGB images to HSV color space
     c_min, _ = rgb.min(dim=1)
     diff = c_max - c_min
 
-    # compute hue based on which channel is dominant
+    # compute hue based on which RGB channel is dominant
     hue = torch.zeros_like(c_max)
 
     mask_r = (c_max == r) & (diff > 0)
@@ -48,18 +58,29 @@ def RGBtoHSV(images): # converts normalized RGB images to HSV color space
     mask_b = (c_max == b) & (diff > 0)
     hue[mask_b] = (60 * ((r[mask_b] - g[mask_b]) / diff[mask_b]) + 240) % 360
 
-    # saturation
+    # saturation = color difference / max brightness
     sat = torch.zeros_like(c_max)
     sat[c_max > 0] = diff[c_max > 0] / c_max[c_max > 0]
 
     return torch.stack([hue, sat, c_max], dim=1)  # [N, 3, H, W]
 
 
-def ApplyHSVMask(images): # binary mask that highlights red and white pixels (waldos stripes)
-    hsv = RGBtoHSV(images)
+def apply_hsv_mask(images):
+    '''
+    creates a binary mask highlighting red and white pixels in the image
+    waldos shirt has red and white stripes so this gives the model a hint
+    about where to look
+
+    args:
+        images: batch of ImageNet normalized images [N, 3, H, W]
+
+    returns:
+        binary mask [N, 1, H, W] where 1 means the pixel is red or white
+    '''
+    hsv = rgb_to_hsv(images)
     h, s, v = hsv[:, 0, :, :], hsv[:, 1, :, :], hsv[:, 2, :, :]
 
-    # red sits at both ends of the hue wheel (near 0 and 360)
+    # red sits at both ends of the hue wheel (near 0 and near 360)
     red_mask   = ((h <= RED_HUE_MAX) | (h >= RED_HUE_MIN)) & (s > RED_SAT_MIN) & (v > RED_VAL_MIN)
     white_mask = (s < WHITE_SAT_MAX) & (v > WHITE_VAL_MIN)
 
@@ -67,17 +88,27 @@ def ApplyHSVMask(images): # binary mask that highlights red and white pixels (wa
     return combined
 
 
-def ApplySobelEdgeDetection(images): # edge detection, waldos stripes make strong horizontal edges
-    # undo normalization
-    # same device fix as RGBtoHSV, tensors need to be on the same device as input
+def apply_sobel_edge_detection(images):
+    '''
+    runs sobel edge detection on the raw grayscale image
+    finds edges of everything in the scene (not just waldo)
+    kept around for ablation studies to compare with sobel on HSV mask
+
+    args:
+        images: batch of ImageNet normalized images [N, 3, H, W]
+
+    returns:
+        edge magnitude [N, 1, H, W] normalized to 0-1 per image
+    '''
+    # undo normalization to get raw RGB
     mean = torch.tensor(IMAGENET_MEAN).view(1, 3, 1, 1).to(images.device)
     std  = torch.tensor(IMAGENET_STD).view(1, 3, 1, 1).to(images.device)
     rgb  = (images * std + mean).clamp(0, 1)
 
-    # convert to grayscale
+    # convert to grayscale using standard luminance weights
     gray = (0.2989 * rgb[:, 0] + 0.5870 * rgb[:, 1] + 0.1140 * rgb[:, 2]).unsqueeze(1)
 
-    # sobel kernels
+    # standard 3x3 sobel kernels for horizontal and vertical edges
     sobel_x = torch.tensor([[-1, 0, 1],
                              [-2, 0, 2],
                              [-1, 0, 1]], dtype=torch.float32).view(1, 1, 3, 3).to(images.device)
@@ -90,7 +121,7 @@ def ApplySobelEdgeDetection(images): # edge detection, waldos stripes make stron
     gy = F.conv2d(gray, sobel_y, padding=1)
     magnitude = torch.sqrt(gx ** 2 + gy ** 2)
 
-    # normalize each image to [0, 1]
+    # normalize each image independently to [0, 1]
     for i in range(magnitude.shape[0]):
         mag_max = magnitude[i].max()
         if mag_max > 0:
@@ -99,16 +130,24 @@ def ApplySobelEdgeDetection(images): # edge detection, waldos stripes make stron
     return magnitude  # [N, 1, H, W]
 
 
-def preprocess_batch(images): # takes [N, 3, 256, 256] and returns [N, 5, 256, 256]
-    hsv_mask = ApplyHSVMask(images) # [N, 1, 256, 256] binary mask of red/white pixels
+def preprocess_batch(images):
+    '''
+    the main preprocessing function that adds HSV mask and sobel channels
+    takes standard 3 channel RGB tiles and returns 5 channel tensors
 
-    # instead of running sobel on the full grayscale image (which finds edges of everything)
-    # we run it on the HSV mask so it only finds edges around red and white regions
-    # the HSV mask is binary (0 or 1) so the edges show up at the boundaries
-    # of red/white areas, which is basically the outline of waldos stripes
-    # the sobel kernels are the standard ones defined by Irwin Sobel in 1968
-    # sobel_x finds vertical edges, sobel_y finds horizontal edges
-    # make sure sobel kernels are on the same device as the input images
+    args:
+        images: batch of ImageNet normalized images [N, 3, H, W]
+
+    returns:
+        5 channel tensor [N, 5, H, W] with:
+          channels 0-2: original RGB
+          channel 3: HSV mask (red/white pixel locations)
+          channel 4: sobel edges of the HSV mask (stripe outlines)
+    '''
+    hsv_mask = apply_hsv_mask(images)  # [N, 1, H, W]
+
+    # run sobel on the HSV mask (not the raw image) so edges only appear
+    # around red and white regions, which is waldos stripe pattern
     sobel_x = torch.tensor([[-1, 0, 1],
                              [-2, 0, 2],
                              [-1, 0, 1]], dtype=torch.float32).view(1, 1, 3, 3).to(images.device)
@@ -117,16 +156,11 @@ def preprocess_batch(images): # takes [N, 3, 256, 256] and returns [N, 5, 256, 2
                              [ 0,  0,  0],
                              [ 1,  2,  1]], dtype=torch.float32).view(1, 1, 3, 3).to(images.device)
 
-    # run the sobel kernels on the hsv mask, not the raw image
     gx = F.conv2d(hsv_mask, sobel_x, padding=1)
     gy = F.conv2d(hsv_mask, sobel_y, padding=1)
-    sobel_of_hsv = torch.sqrt(gx ** 2 + gy ** 2) # [N, 1, 256, 256] edges of red/white regions
+    sobel_of_hsv = torch.sqrt(gx ** 2 + gy ** 2)  # [N, 1, H, W]
 
-    # stack RGB + HSV mask + sobel of HSV = 5 channels total
-    # channel 1,2,3: the original RGB image
-    # channel 4: where the red and white pixels are
-    # channel 5: the edges around those red and white regions
-    return torch.cat([images, hsv_mask, sobel_of_hsv], dim=1)  # [N, 5, 256, 256]
+    return torch.cat([images, hsv_mask, sobel_of_hsv], dim=1)  # [N, 5, H, W]
 
 
 if __name__ == "__main__":
@@ -138,18 +172,13 @@ if __name__ == "__main__":
     loader = get_dataloader(split="train", tile_size=256, batch_size=4)
     images, labels, bboxes = next(iter(loader))
 
-    print(f"input shape: {images.shape}") # [4, 3, 256, 256]
+    print(f"input shape: {images.shape}")  # [4, 3, 256, 256]
 
-    hsv_mask = ApplyHSVMask(images)
-    print(f"hsv mask shape: {hsv_mask.shape}") # [4, 1, 256, 256]
+    hsv_mask = apply_hsv_mask(images)
+    print(f"hsv mask shape: {hsv_mask.shape}")  # [4, 1, 256, 256]
 
-    # test the old sobel on raw image (kept for ablation studies)
-    sobel_raw = ApplySobelEdgeDetection(images)
-    print(f"sobel on raw image shape: {sobel_raw.shape}") # [4, 1, 256, 256]
+    sobel_raw = apply_sobel_edge_detection(images)
+    print(f"sobel on raw image shape: {sobel_raw.shape}")  # [4, 1, 256, 256]
 
-    # test the new preprocess_batch which uses sobel on hsv mask
     combined = preprocess_batch(images)
-    print(f"combined shape: {combined.shape}") # [4, 5, 256, 256]
-    print(f"  channel 1,2,3: RGB")
-    print(f"  channel 4: HSV mask (red/white pixels)")
-    print(f"  channel 5: sobel edges of HSV mask (outlines of red/white regions)")
+    print(f"combined shape: {combined.shape}")  # [4, 5, 256, 256]

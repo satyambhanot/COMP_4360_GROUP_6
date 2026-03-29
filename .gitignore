@@ -10,3 +10,4 @@ checkpoints/*
 
 results/
 saved_results/
+.DS_Store

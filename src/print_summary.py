@@ -15,7 +15,7 @@ import json
 sys.path.insert(0, os.path.dirname(__file__))
 
 from model import create_model
-from config import MODEL_TYPE, CHECKPOINTS_DIR, NUM_EPOCHS
+from config import MODEL_TYPE, NUM_EPOCHS
 
 
 def print_model_summary():

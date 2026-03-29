@@ -12,7 +12,6 @@ usage: python experiments/reeval_ablation_variant.py <name> <use_hsv> <use_sobel
 import sys
 import os
 import json
-import shutil
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
@@ -30,13 +29,8 @@ config.RETINANET_INPUT_SIZE = 512
 
 from model import WaldoDetectorRetinaNet
 from data_pipeline import get_dataloader
-from nms import apply_nms
 from utils import get_device
-from pre_processing import apply_hsv_mask
-from config import (
-    BATCH_SIZE, INPUT_SIZE, NMS_CONFIDENCE_THRESHOLD,
-    HSV_FILTER_THRESHOLD, USE_TTA, RETINANET_INPUT_SIZE
-)
+from config import BATCH_SIZE
 
 device = get_device()
 

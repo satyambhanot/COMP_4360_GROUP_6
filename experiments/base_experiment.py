@@ -18,8 +18,10 @@ sys.path.insert(0, os.path.join(PROJECT_ROOT, "src"))
 
 
 class Experiment:
-    # base class that handles the full train -> evaluate -> save pipeline
-    # subclasses just set the name and config, this class does the rest
+    '''
+    base class that handles the full train -> evaluate -> save pipeline
+    each experiment just specifies its name and config overrides
+    '''
 
     def __init__(self, name, config_overrides):
         self.name = name

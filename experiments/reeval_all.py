@@ -1,12 +1,11 @@
-# experiments/reeval_all.py
-# re-evaluates all saved checkpoints without retraining
-# useful when evaluation code was fixed but models dont need to retrain
-#
-# for ablation variants, we spawn separate processes because each variant
-# needs different preprocessing flags (use_hsv, use_sobel) which affect
-# the model architecture (different number of input channels)
-#
-# usage: python experiments/reeval_all.py
+'''
+reeval_all.py
+re-evaluates all saved checkpoints without retraining
+useful when evaluation code was fixed but models dont need to retrain
+ablation variants spawn as separate processes for correct preprocessing flags
+
+usage: python experiments/reeval_all.py
+'''
 
 import sys
 import os

@@ -1,8 +1,10 @@
-# experiments/run_pretrained_ssd.py
-# trains and evaluates the pretrained SSD300 VGG16 model
-# saves everything to saved_results/pretrained_ssd/
-#
-# usage: python experiments/run_pretrained_ssd.py
+'''
+run_pretrained_ssd.py
+trains and evaluates the pretrained SSD300 VGG16 model
+saves everything to saved_results/pretrained_ssd/
+
+usage: python experiments/run_pretrained_ssd.py
+'''
 
 from base_experiment import Experiment
 

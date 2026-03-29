@@ -1,8 +1,10 @@
-# experiments/run_custom_ssd.py
-# trains and evaluates our custom SSD with MobileNetV2 backbone
-# saves everything to saved_results/custom_ssd/
-#
-# usage: python experiments/run_custom_ssd.py
+'''
+run_custom_ssd.py
+trains and evaluates our custom SSD with MobileNetV2 backbone
+saves everything to saved_results/custom_ssd/
+
+usage: python experiments/run_custom_ssd.py
+'''
 
 from base_experiment import Experiment
 

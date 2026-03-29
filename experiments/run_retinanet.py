@@ -1,8 +1,10 @@
-# experiments/run_retinanet.py
-# trains and evaluates the RetinaNet model
-# saves everything to saved_results/retinanet/
-#
-# usage: python experiments/run_retinanet.py
+'''
+run_retinanet.py
+trains and evaluates the RetinaNet model
+saves everything to saved_results/retinanet/
+
+usage: python experiments/run_retinanet.py
+'''
 
 from base_experiment import Experiment
 

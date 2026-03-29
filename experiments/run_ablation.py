@@ -1,17 +1,15 @@
-# experiments/run_ablation.py
-# controller script for the preprocessing ablation study
-# runs each variant as a SEPARATE PYTHON PROCESS so GPU memory
-# is fully released between variants (no OOM issues)
-#
-# tests whether our HSV mask and Sobel edge detection actually help
-# by training three versions of RetinaNet with different preprocessing:
-#   full_pipeline: RGB + HSV + Sobel (our normal approach)
-#   hsv_only: RGB + HSV (no Sobel)
-#   rgb_only: just RGB (no preprocessing)
-#
-# after all three variants finish, generates a comparison chart
-#
-# usage: python experiments/run_ablation.py
+'''
+run_ablation.py
+controller for the preprocessing ablation study
+runs each variant as a separate process so GPU memory is fully released
+
+tests whether HSV mask and Sobel edge detection actually help:
+  full_pipeline: RGB + HSV + Sobel
+  hsv_only: RGB + HSV (no Sobel)
+  rgb_only: just RGB (no preprocessing)
+
+usage: python experiments/run_ablation.py
+'''
 
 import sys
 import os

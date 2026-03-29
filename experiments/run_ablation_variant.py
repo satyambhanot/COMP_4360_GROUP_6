@@ -1,10 +1,10 @@
-# experiments/run_ablation_variant.py
-# trains and evaluates a single ablation variant
-# called by run_ablation.py with command line arguments
-# runs as a separate process so GPU memory is fully released between variants
-#
-# usage: python experiments/run_ablation_variant.py <variant_name> <use_hsv> <use_sobel>
-# example: python experiments/run_ablation_variant.py full_pipeline True True
+'''
+run_ablation_variant.py
+trains and evaluates a single ablation variant
+called by run_ablation.py as a separate process for clean GPU memory
+
+usage: python experiments/run_ablation_variant.py <name> <use_hsv> <use_sobel>
+'''
 
 import sys
 import os

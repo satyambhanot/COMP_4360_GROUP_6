@@ -1,13 +1,13 @@
-# experiments/reeval_ablation_variant.py
-# re-evaluates a single ablation variant with the correct preprocessing flags
-# called by reeval_all.py as a separate process
-#
-# the key issue: ablation variants have different numbers of input channels
-# hsv_only has 4 channels (RGB + HSV), rgb_only has 3 channels
-# the model must be created with the right flags before loading the checkpoint
-# otherwise the channel_conv weight shapes wont match
-#
-# usage: python experiments/reeval_ablation_variant.py <name> <use_hsv> <use_sobel>
+'''
+reeval_ablation_variant.py
+re-evaluates a single ablation variant with correct preprocessing flags
+called by reeval_all.py as a separate process
+
+each variant has different input channels so the model must be created
+with the right use_hsv/use_sobel flags before loading the checkpoint
+
+usage: python experiments/reeval_ablation_variant.py <name> <use_hsv> <use_sobel>
+'''
 
 import sys
 import os

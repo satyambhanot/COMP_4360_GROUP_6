@@ -1,8 +1,10 @@
-# experiments/run_yolo.py
-# trains and evaluates YOLOv8 for comparison against our SSD/RetinaNet approach
-# saves everything to saved_results/yolo/
-#
-# usage: python experiments/run_yolo.py
+'''
+run_yolo.py
+trains and evaluates YOLOv8 for comparison against our models
+saves everything to saved_results/yolo/
+
+usage: python experiments/run_yolo.py
+'''
 
 import sys
 import os

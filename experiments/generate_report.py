@@ -1,12 +1,11 @@
-# experiments/generate_report.py
-# scans saved_results/ for all completed experiments and generates
-# comparison charts, summary tables, and a combined results file
-#
-# this is the final step after all experiments are done
-# it reads metrics.json from each model folder and creates
-# side by side comparisons for the report
-#
-# usage: python experiments/generate_report.py
+'''
+generate_report.py
+scans saved_results/ for all completed experiments and generates
+comparison charts, summary tables, and combined results file
+this is the final step after all experiments are done
+
+usage: python experiments/generate_report.py
+'''
 
 import sys
 import os

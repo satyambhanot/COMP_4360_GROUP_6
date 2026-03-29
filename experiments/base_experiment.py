@@ -1,10 +1,9 @@
-# experiments/base_experiment.py
-# base class for all experiment scripts
-# handles the common boilerplate: config overrides, directory setup,
-# train -> evaluate -> save flow
-#
-# each experiment just needs to specify its name and config overrides
-# the base class does everything else
+'''
+base_experiment.py
+base class for all experiment scripts
+handles config overrides, directory setup, and the train -> evaluate -> save flow
+each experiment just specifies its name and config, the base class does the rest
+'''
 
 import sys
 import os

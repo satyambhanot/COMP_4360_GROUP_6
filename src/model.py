@@ -1,61 +1,26 @@
-# model.py
-# this is the main model file where we connect all the pieces together
-# a tile image goes in and waldo predictions come out
-#
-# i was confused about how many SSD heads to use because config originally said 6
-# but when i traced through the sizes it only works with 5
-# the backbone gives us 16x16 and each head cuts it in half
-# 16 -> 8 -> 4 -> 2 -> 1, thats 5 heads
-# after that its 1x1 and theres nothing left to halve
-#
-# the full flow through the model:
-#
-#   1. images come in as [N, 3, 256, 256] from the dataloader
-#
-#   2. preprocess_batch adds the HSV mask and sobel edges of the HSV mask
-#      now we have [N, 5, 256, 256] (3 RGB + 1 HSV + 1 Sobel of HSV)
-#      but this is configurable, we can turn off HSV or sobel for ablation studies
-#
-#   3. mobilenet expects 3 channels not 5
-#      so we use a 1x1 conv to squish the extra channels back down to 3
-#      this is a learnable layer so the model figures out
-#      the best way to combine those channels
-#      if preprocessing is off we skip this step entirely
-#
-#   4. run it through the mobilenet backbone (first 11 layers)
-#      this extracts features and shrinks the spatial size
-#      now we have [N, 64, 16, 16]
-#
-#   5. pass the features through 5 SSD heads one after another
-#      each head predicts bounding box offsets and class scores
-#      then pools the feature map to half the size for the next head
-#
-#      head 1: 16x16 -> 1024 anchors -> pools to 8x8
-#      head 2: 8x8   -> 256 anchors  -> pools to 4x4
-#      head 3: 4x4   -> 64 anchors   -> pools to 2x2
-#      head 4: 2x2   -> 16 anchors   -> pools to 1x1
-#      head 5: 1x1   -> 4 anchors    -> pools to 0x0 (we ignore this)
-#
-#   6. concatenate_all_heads combines everything into final tensors
-#      total anchors: 1024 + 256 + 64 + 16 + 4 = 1364
-#      loc output: [N, 1364, 4]
-#      cls output: [N, 1364, 2]
-#
-# whats trainable and whats frozen:
-#   frozen (we dont update these weights):
-#     the mobilenet backbone, it already knows how to extract features from imagenet
-#   trainable (these learn during training):
-#     the 1x1 conv that merges the extra channels down to 3
-#     all 5 SSD heads (the loc and cls conv layers inside each one)
-#   not a layer at all (just a function with no weights):
-#     preprocess_batch, it just does math on the pixels
-#     concatenate_all_heads, it just reshapes tensors
-#
-# for ablation studies we added flags to turn parts on and off:
-#   use_hsv: whether to include the HSV red/white mask channel
-#   use_sobel: whether to include the sobel edge channel
-#   use_pretrained: whether to load imagenet weights or start from random
-#   num_heads: how many SSD heads to use (default 5, can try 3 for model size ablation)
+'''
+model.py
+defines all three model architectures for our waldo detector
+a tile image goes in and waldo predictions come out
+
+we have three models:
+  WaldoDetector: custom SSD with MobileNetV2 backbone (our baseline)
+  WaldoDetectorPretrained: SSD300 VGG16 pretrained on COCO
+  WaldoDetectorRetinaNet: RetinaNet ResNet50 FPN pretrained on COCO (our best)
+
+the custom SSD flow (WaldoDetector):
+  1. images come in as [N, 3, 256, 256] from the dataloader
+  2. preprocess_batch adds HSV mask + sobel edges -> [N, 5, 256, 256]
+  3. 1x1 conv squishes 5 channels back to 3 for the backbone
+  4. mobilenet backbone extracts features -> [N, 64, 16, 16]
+  5. five SSD heads predict at scales 16x16, 8x8, 4x4, 2x2, 1x1
+  6. concatenate_all_heads combines into [N, 1364, 4] locs + [N, 1364, 2] cls
+
+the pretrained models (SSD300 and RetinaNet) follow a similar flow but use
+torchvisions internal detection pipeline instead of our custom heads
+
+for ablation studies we added flags: use_hsv, use_sobel, use_pretrained, num_heads
+'''
 
 import torch
 import torch.nn as nn
@@ -477,45 +442,3 @@ def create_model(use_hsv=True, use_sobel=True, use_pretrained_backbone=True, num
         model.model_type = "custom_ssd"
 
     return model
-
-
-if __name__ == "__main__":
-    # quick test to make sure all the pieces connect properly
-    # load a small batch of real tiles and run them through the model
-
-    print("loading a batch of tiles...")
-    loader = get_dataloader(split="train", tile_size=256, batch_size=4)
-    images, labels, bboxes = next(iter(loader))
-    print(f"input images: {images.shape}") # should be [4, 3, 256, 256]
-
-    # test the full model with all preprocessing on (default)
-    print("\ntesting full model (HSV + Sobel)...")
-    model = WaldoDetector(use_hsv=True, use_sobel=True)
-    model.eval()
-    with torch.no_grad():
-        locs, cls_scores, anchors = model(images)
-    print(f"  loc predictions: {locs.shape}") # [4, 1364, 4]
-    print(f"  cls predictions: {cls_scores.shape}") # [4, 1364, 2]
-    print(f"  anchors: {anchors.shape}") # [1364, 4]
-    print(f"  total anchors: {anchors.shape[0]}")
-
-    # test with no preprocessing (for ablation comparison)
-    print("\ntesting model with no preprocessing (raw RGB only)...")
-    model_raw = WaldoDetector(use_hsv=False, use_sobel=False)
-    model_raw.eval()
-    with torch.no_grad():
-        locs2, cls2, anchors2 = model_raw(images)
-    print(f"  loc predictions: {locs2.shape}") # [4, 1364, 4]
-    print(f"  cls predictions: {cls2.shape}") # [4, 1364, 2]
-
-    # test with fewer heads (for model size ablation)
-    print("\ntesting model with 3 SSD heads...")
-    model_small = WaldoDetector(num_heads=3)
-    model_small.eval()
-    with torch.no_grad():
-        locs3, cls3, anchors3 = model_small(images)
-    print(f"  loc predictions: {locs3.shape}") # should have fewer anchors
-    print(f"  cls predictions: {cls3.shape}")
-    print(f"  anchors: {anchors3.shape}")
-    # 3 heads: 16x16 + 8x8 + 4x4 = 1024 + 256 + 64 = 1344 anchors
-    print(f"  total anchors: {anchors3.shape[0]}")

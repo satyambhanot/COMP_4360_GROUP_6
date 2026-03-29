@@ -1,27 +1,34 @@
-# anchors.py
-# this file handles anchor boxes for our custom SSD detector
-# each SSD head makes predictions at different grid sizes (16x16, 8x8, 4x4, etc)
-# at every grid position we place anchor boxes of different sizes
-# the SSD heads predict offsets from these anchors, not absolute positions
-# so we need to know where the anchors actually are on the image
-#
-# this file does three things:
-#   1. generate anchor box positions for a given grid size
-#   2. reshape the raw SSD output into a usable format
-#   3. combine predictions from all heads into one big tensor
+'''
+anchors.py
+handles anchor boxes for our custom SSD detector
+each SSD head makes predictions at different grid sizes (16x16, 8x8, 4x4, etc)
+at every grid position we place anchor boxes of different sizes
+the SSD heads predict offsets from these anchors, not absolute positions
+so we need to know where the anchors actually are on the image
+
+this file does three things:
+  1. generate anchor box positions for a given grid size
+  2. reshape the raw SSD output into a usable format
+  3. combine predictions from all heads into one big tensor
+'''
 
 import torch
 from config import NUM_ANCHORS, NUM_CLASSES, INPUT_SIZE
 
 
 def generate_anchors(feature_size, image_size=INPUT_SIZE):
-    # creates anchor box positions for one SSD head
-    # feature_size is the spatial size of the feature map (like 16 for a 16x16 grid)
-    # image_size is the original tile size (256)
-    #
-    # for each grid cell we place NUM_ANCHORS boxes of different sizes
-    # we return the center x, center y, width, height of each anchor
-    # all values are in pixels relative to the original image
+    '''
+    creates anchor box positions for one SSD head
+    for each grid cell we place NUM_ANCHORS boxes of different sizes
+
+    args:
+        feature_size: spatial size of the feature map (16 for a 16x16 grid)
+        image_size: original tile size in pixels (default 256)
+
+    returns:
+        tensor of anchor positions [feature_size^2 * NUM_ANCHORS, 4]
+        each row is [center_x, center_y, width, height] in pixels
+    '''
 
     anchors = []
 
@@ -51,15 +58,18 @@ def generate_anchors(feature_size, image_size=INPUT_SIZE):
 
 
 def reshape_predictions(loc, cls):
-    # the SSD head outputs loc and cls in convolution format
-    # loc comes out as [N, NUM_ANCHORS * 4, H, W] which is hard to work with
-    # cls comes out as [N, NUM_ANCHORS * NUM_CLASSES, H, W]
-    #
-    # we want to rearrange them so each row is one prediction:
-    # loc becomes [N, H * W * NUM_ANCHORS, 4] (one row per anchor, 4 box values each)
-    # cls becomes [N, H * W * NUM_ANCHORS, NUM_CLASSES] (one row per anchor, 2 class scores each)
-    #
-    # we're not changing any values here, just rearranging them into a flat list
+    '''
+    reshapes raw SSD head output from convolution format into flat prediction lists
+    no values are changed, just rearranged so each row is one anchor prediction
+
+    args:
+        loc: bounding box predictions [N, NUM_ANCHORS*4, H, W]
+        cls: class score predictions [N, NUM_ANCHORS*NUM_CLASSES, H, W]
+
+    returns:
+        loc: reshaped to [N, H*W*NUM_ANCHORS, 4] (one row per anchor)
+        cls: reshaped to [N, H*W*NUM_ANCHORS, NUM_CLASSES] (one row per anchor)
+    '''
 
     batch_size = loc.shape[0]
 
@@ -75,18 +85,20 @@ def reshape_predictions(loc, cls):
 
 
 def concatenate_all_heads(all_loc_preds, all_cls_preds, feature_sizes):
-    # takes the raw loc and cls outputs from every SSD head
-    # reshapes each one into a flat list of predictions
-    # then stacks them all together so we have one big tensor
-    #
-    # all_loc_preds is a list of loc tensors, one per head
-    # all_cls_preds is a list of cls tensors, one per head
-    # feature_sizes is a list like [16, 8, 4, 2, 1] telling us each heads grid size
-    #
-    # returns:
-    #   all_locs: [N, total_anchors, 4] every box prediction from every head
-    #   all_cls: [N, total_anchors, 2] every class score from every head
-    #   all_anchors: [total_anchors, 4] the actual anchor positions on the image
+    '''
+    combines predictions from all SSD heads into single tensors
+    reshapes each heads output into flat lists then stacks them together
+
+    args:
+        all_loc_preds: list of loc tensors from each head
+        all_cls_preds: list of cls tensors from each head
+        feature_sizes: list like [16, 8, 4, 2, 1] for each heads grid size
+
+    returns:
+        all_locs: [N, total_anchors, 4] every box prediction from every head
+        all_cls: [N, total_anchors, 2] every class score from every head
+        all_anchors: [total_anchors, 4] the actual anchor positions on the image
+    '''
 
     reshaped_locs = []
     reshaped_cls = []

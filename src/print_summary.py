@@ -1,7 +1,12 @@
-# print_summary.py
-# prints model summary and training results
-# called by run.sh to keep the bash script clean
-# these were originally inline Python blocks in run.sh
+'''
+print_summary.py
+prints model summary and training results for the pipeline output
+called by run.sh to keep the bash script clean
+
+usage:
+    python src/print_summary.py model     prints architecture and parameter counts
+    python src/print_summary.py results   prints evaluation metrics from results json
+'''
 
 import sys
 import os
@@ -14,7 +19,10 @@ from config import MODEL_TYPE, CHECKPOINTS_DIR, NUM_EPOCHS
 
 
 def print_model_summary():
-    # prints the model architecture, preprocessing, and parameter counts
+    '''
+    prints the current model architecture, preprocessing setup,
+    and total/trainable/frozen parameter counts
+    '''
     model = create_model()
     total = sum(p.numel() for p in model.parameters())
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -49,8 +57,10 @@ def print_model_summary():
 
 
 def print_run_summary():
-    # prints the final results after evaluation is done
-    # loads the evaluation_results.json and formats it nicely
+    '''
+    prints the final evaluation results after a training run
+    loads evaluation_results.json and formats the metrics nicely
+    '''
     results_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "results", "evaluation_results.json")
 
     if not os.path.exists(results_path):

@@ -1,10 +1,11 @@
-# sanity_check.py
-# quick check after training to see if the model learned anything useful
-# loads the best checkpoint and runs a few training batches through it
-# compares confidence on positive tiles (should be high) vs negative tiles (should be low)
-#
-# this was originally inline python in run.sh, moved here to keep things clean
-# usage: python src/sanity_check.py
+'''
+sanity_check.py
+quick check after training to see if the model learned anything useful
+loads the best checkpoint and compares confidence on positive vs negative tiles
+positive tiles should have high confidence, negatives should be low
+
+usage: python src/sanity_check.py
+'''
 
 import sys
 import os
@@ -20,6 +21,11 @@ from config import CHECKPOINTS_DIR, MODEL_TYPE
 
 
 def run_sanity_check():
+    '''
+    loads the best checkpoint and runs inference on a few training batches
+    prints average confidence for positive vs negative tiles and the
+    separation ratio to show if the model learned to discriminate
+    '''
     device = get_device()
 
     checkpoint_path = os.path.join(CHECKPOINTS_DIR, "best_model.pth")

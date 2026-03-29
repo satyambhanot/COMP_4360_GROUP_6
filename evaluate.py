@@ -1,11 +1,15 @@
-# evaluate.py
-# this is where we find out if our model actually works
-# run from project root: python evaluate.py
-#
-# what this file does:
-#   loads the best trained model from checkpoints, runs it on test tiles
-#   the model has never seen before, measures how well it finds waldo
-#   using real metrics, and saves visualizations for the report
+'''
+evaluate.py
+loads the best trained model and evaluates it on test tiles the model
+has never seen before. measures how well it finds waldo using precision,
+recall, F1, and generates 10+ visualization plots for the report.
+
+includes HSV pre-filter (skip tiles with no red/white) and test-time
+augmentation (horizontal flip). the run_evaluation() function can be
+called from experiment scripts with custom paths.
+
+usage: python evaluate.py (uses default config settings)
+'''
 
 import sys
 import os
@@ -43,9 +47,13 @@ print(f"using device: {device}")
 
 
 def load_model():
-    # loads the trained model from the best checkpoint
-    # if the checkpoint doesnt exist it means nobody has trained yet
-    # so we print a helpful message instead of crashing
+    '''
+    loads the trained model from the best checkpoint
+    reads model_type from the checkpoint to create the right architecture
+
+    returns:
+        loaded model in eval mode, or None if no checkpoint exists
+    '''
 
     # read CHECKPOINTS_DIR from config at call time, not import time
     # this way experiment scripts can override it before calling load_model
@@ -136,15 +144,21 @@ def unnormalize(tensor):
 
 
 def run_predictions(model, dataloader, device):
-    # runs every test tile through the model and collects the results
-    # for each tile we record: did the model predict waldo? what was the confidence?
-    # and what was the actual ground truth label?
-    # we use these to compute metrics and draw visualizations
-    #
-    # before running inference we apply an HSV pre filter
-    # tiles with no red/white pixels at all cant possibly have waldo
-    # this is a cheap first stage filter inspired by the Bangor university paper
-    # which used a Haar cascade as their first stage
+    '''
+    runs all test tiles through the model with HSV pre-filter and optional TTA
+    collects predictions, labels, confidences, and NMS results for each tile
+
+    args:
+        model: trained detection model
+        dataloader: test data loader
+        device: torch device
+
+    returns:
+        predictions: list of 0/1 for each tile
+        labels: list of ground truth 0/1
+        confidences: list of max waldo confidence per tile
+        nms_results: list of (boxes, scores) tuples per tile
+    '''
     # we use our HSV mask instead since we already built it for preprocessing
 
     all_predictions = [] # 1 if model thinks waldo is in this tile, 0 if not
@@ -282,9 +296,16 @@ def run_predictions(model, dataloader, device):
 
 
 def compute_metrics(predictions, labels):
-    # computes accuracy, precision, recall, and f1 from the predictions
-    # also prints a confusion matrix showing TP, FP, TN, FN counts
-    # returns a dictionary of all metrics so ablation studies can use them
+    '''
+    computes accuracy, precision, recall, F1 and prints confusion matrix
+
+    args:
+        predictions: list of 0/1 predictions
+        labels: list of 0/1 ground truth
+
+    returns:
+        dict with accuracy, precision, recall, f1, tp, fp, tn, fn
+    '''
 
     tp = sum(1 for p, l in zip(predictions, labels) if p == 1 and l == 1) # correctly found waldo
     fp = sum(1 for p, l in zip(predictions, labels) if p == 1 and l == 0) # false alarm
@@ -962,10 +983,17 @@ def run_demo(model, device, image_path=None):
 
 
 def run_evaluation(output_dir=None, checkpoint_dir=None):
-    # main evaluation function that can be called from experiment scripts
-    # output_dir: where to save plots and results (defaults to RESULTS_DIR)
-    # checkpoint_dir: where to load the trained model from (defaults to CHECKPOINTS_DIR)
-    # returns: metrics dict
+    '''
+    main evaluation function, can be called directly or from experiment scripts
+    loads model, runs predictions, computes metrics, generates all plots
+
+    args:
+        output_dir: where to save plots and json (defaults to results/)
+        checkpoint_dir: where to load model from (defaults to checkpoints/)
+
+    returns:
+        metrics dict with precision, recall, f1, etc
+    '''
 
     global RESULTS_DIR
     original_results_dir = RESULTS_DIR

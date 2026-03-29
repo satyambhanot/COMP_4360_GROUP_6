@@ -10,12 +10,12 @@ usage: python src/sanity_check.py
 import sys
 import os
 
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import torch
 import torch.nn.functional as F
-from model import WaldoDetector, WaldoDetectorPretrained, WaldoDetectorRetinaNet
-from data_pipeline import get_dataloader
+from models.model import WaldoDetector, WaldoDetectorPretrained, WaldoDetectorRetinaNet
+from data.data_pipeline import get_dataloader
 from utils import get_device
 from config import CHECKPOINTS_DIR, MODEL_TYPE
 

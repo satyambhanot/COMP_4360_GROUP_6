@@ -70,7 +70,7 @@ echo ""
 echo "========================================"
 echo "  Step 3: Model summary"
 echo "========================================"
-$PYTHON src/print_summary.py model
+$PYTHON src/scripts/print_summary.py model
 echo ""
 
 # step 4: clean old checkpoints
@@ -94,7 +94,7 @@ echo ""
 echo "========================================"
 echo "  Step 6: Sanity check"
 echo "========================================"
-$PYTHON src/sanity_check.py
+$PYTHON src/scripts/sanity_check.py
 echo ""
 
 # step 7: full evaluation
@@ -108,7 +108,7 @@ echo ""
 echo "========================================"
 echo "  Step 8: Summary"
 echo "========================================"
-$PYTHON src/print_summary.py results
+$PYTHON src/scripts/print_summary.py results
 echo ""
 
 echo "========================================"

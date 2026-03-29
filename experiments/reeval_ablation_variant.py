@@ -27,8 +27,8 @@ config.MODEL_TYPE = "retinanet"
 config.BATCH_SIZE = 8
 config.RETINANET_INPUT_SIZE = 512
 
-from model import WaldoDetectorRetinaNet
-from data_pipeline import get_dataloader
+from models.model import WaldoDetectorRetinaNet
+from data.data_pipeline import get_dataloader
 from utils import get_device
 from config import BATCH_SIZE
 

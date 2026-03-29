@@ -26,9 +26,9 @@ import matplotlib.pyplot as plt
 from PIL import Image, ImageDraw
 from torchvision import transforms
 
-from model import WaldoDetector, WaldoDetectorPretrained, WaldoDetectorRetinaNet
-from data_pipeline import get_dataloader
-from nms import apply_nms
+from models.model import WaldoDetector, WaldoDetectorPretrained, WaldoDetectorRetinaNet
+from data.data_pipeline import get_dataloader
+from models.nms import apply_nms
 from utils import get_device
 from config import (
     BATCH_SIZE, INPUT_SIZE,
@@ -37,7 +37,7 @@ from config import (
     HSV_FILTER_THRESHOLD, USE_TTA,
     RETINANET_INPUT_SIZE
 )
-from pre_processing import apply_hsv_mask
+from data.pre_processing import apply_hsv_mask
 
 # where we save all the output images and results
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), "results")

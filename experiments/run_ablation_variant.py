@@ -49,7 +49,7 @@ if __name__ == "__main__":
     print(f"{'=' * 50}", flush=True)
 
     # create model with specific preprocessing flags
-    from model import create_model
+    from models.model import create_model
     model = create_model(use_hsv=use_hsv, use_sobel=use_sobel)
 
     # train

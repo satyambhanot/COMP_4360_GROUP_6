@@ -29,9 +29,9 @@ from torchvision import models
 from torchvision.models.detection import ssd300_vgg16, retinanet_resnet50_fpn_v2
 from torchvision.models.detection.ssd import SSDClassificationHead
 
-from pre_processing import preprocess_batch, apply_hsv_mask, apply_sobel_edge_detection
-from ssd_block import SSDBlock
-from anchors import concatenate_all_heads
+from data.pre_processing import preprocess_batch, apply_hsv_mask, apply_sobel_edge_detection
+from models.ssd_block import SSDBlock
+from models.anchors import concatenate_all_heads
 from config import (
     BACKBONE_LAYERS, BACKBONE_CHANNELS,
     NUM_CLASSES, NUM_ANCHORS, SSD_KERNEL_SIZE,

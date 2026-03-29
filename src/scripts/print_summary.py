@@ -12,9 +12,9 @@ import sys
 import os
 import json
 
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from model import create_model
+from models.model import create_model
 from config import MODEL_TYPE, NUM_EPOCHS
 
 
@@ -61,7 +61,7 @@ def print_run_summary():
     prints the final evaluation results after a training run
     loads evaluation_results.json and formats the metrics nicely
     '''
-    results_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "results", "evaluation_results.json")
+    results_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "results", "evaluation_results.json")
 
     if not os.path.exists(results_path):
         print("no evaluation results found")

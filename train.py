@@ -36,8 +36,8 @@ torch.backends.cudnn.benchmark = True
 # this removes per operation checking overhead
 torch.autograd.set_detect_anomaly(False)
 
-from model import create_model
-from data_pipeline import get_dataloader
+from models.model import create_model
+from data.data_pipeline import get_dataloader
 from utils import get_device, format_targets
 from config import (
     LEARNING_RATE, NUM_EPOCHS, BATCH_SIZE,

@@ -1,19 +1,20 @@
-# train.py
-# this is the main training script, you run it from the project root
-# like: python train.py
-#
-# what this file does:
-#   loads tiles from the data pipeline, feeds them through the model,
-#   computes two losses (classification + localization), uses those to
-#   update the model weights, and saves the best version to checkpoints
-#
-# we are training a standard SSD detector which means:
-#   every anchor gets a classification target (waldo or background)
-#   matched anchors on positive tiles also get a localization target
-#   the model learns at the anchor level, not the tile level
-#
-# we train on a GTX 1080 Ti with 11GB VRAM
-# with batch size 24 and 256x256 tiles this fits comfortably
+'''
+train.py
+main training script for all model architectures
+loads tiles from the data pipeline, feeds them through the model,
+computes classification + localization losses, updates weights,
+and saves the best checkpoint
+
+supports three architectures via MODEL_TYPE in config:
+  custom_ssd: trains SSD heads from scratch with Adam
+  pretrained_ssd: fine tunes SSD300 VGG16 heads with SGD + focal loss
+  retinanet: fine tunes RetinaNet FPN heads with SGD (focal loss built in)
+
+the run_training() function can be called from experiment scripts
+with custom checkpoint directories so each experiment saves separately
+
+usage: python train.py (uses default config settings)
+'''
 
 import sys
 import os
@@ -51,9 +52,15 @@ device = get_device()
 print(f"using device: {device}")
 
 def bbox_to_center(bbox):
-    # converts a bounding box from [xmin, ymin, xmax, ymax] to [cx, cy, w, h]
-    # our dataloader gives us bboxes in corner format
-    # but anchors and SSD predictions use center format
+    '''
+    converts a bounding box from corner format to center format
+
+    args:
+        bbox: [xmin, ymin, xmax, ymax] tensor
+
+    returns:
+        [cx, cy, w, h] tensor
+    '''
     xmin, ymin, xmax, ymax = bbox[0], bbox[1], bbox[2], bbox[3]
     cx = (xmin + xmax) / 2
     cy = (ymin + ymax) / 2
@@ -64,14 +71,17 @@ def bbox_to_center(bbox):
 
 
 def compute_iou(box, anchors):
-    # computes intersection over union between one ground truth box and all anchors
-    # box is [4] in [cx, cy, w, h] format
-    # anchors is [num_anchors, 4] in [cx, cy, w, h] format
-    # returns [num_anchors] with iou values
-    #
-    # we need to convert to corner format first to compute the overlap
-    # iou = area of overlap / area of union
-    # this tells us how much two boxes overlap on a scale of 0 to 1
+    '''
+    computes intersection over union between one ground truth box and all anchors
+    iou measures how much two boxes overlap on a scale of 0 to 1
+
+    args:
+        box: single ground truth box [4] in center format [cx, cy, w, h]
+        anchors: all anchor positions [num_anchors, 4] in center format
+
+    returns:
+        iou values [num_anchors] for each anchor vs the ground truth
+    '''
 
     # convert box to corners
     b_x1 = box[0] - box[2] / 2
@@ -102,19 +112,18 @@ def compute_iou(box, anchors):
 
 
 def encode_ground_truth(gt_box, anchor):
-    # this is the reverse of decode_predictions in nms.py
-    # given a ground truth box and an anchor, compute what offsets the model should predict
-    # the SSD paper (Liu et al, ECCV 2016) defines this encoding formula
-    #
-    # gt_box is [cx, cy, w, h] the actual waldo position
-    # anchor is [cx, cy, w, h] the anchor position
-    # returns [dx, dy, dw, dh] the target offsets
-    #
-    # the formula:
-    #   dx = (gt_cx minus anchor_cx) / anchor_w
-    #   dy = (gt_cy minus anchor_cy) / anchor_h
-    #   dw = log(gt_w / anchor_w)
-    #   dh = log(gt_h / anchor_h)
+    '''
+    computes the target offsets the model should predict for a matched anchor
+    this is the reverse of decode_predictions in nms.py
+    formula from the SSD paper (Liu et al, ECCV 2016)
+
+    args:
+        gt_box: ground truth box [cx, cy, w, h]
+        anchor: anchor position [cx, cy, w, h]
+
+    returns:
+        target offsets [dx, dy, dw, dh]
+    '''
 
     dx = (gt_box[0] - anchor[0]) / (anchor[2] + 1e-6)
     dy = (gt_box[1] - anchor[1]) / (anchor[3] + 1e-6)
@@ -126,17 +135,17 @@ def encode_ground_truth(gt_box, anchor):
 
 
 def focal_loss_weight(loss_tensor, gamma=FOCAL_LOSS_GAMMA):
-    # applies focal loss weighting to an already computed loss
-    # the idea: if the model is already confident about a prediction (low loss)
-    # we reduce its contribution to the total loss
-    # if the model is confused (high loss) we keep the full contribution
-    #
-    # this is a simplified version that works with torchvisions internal SSD loss
-    # instead of rewriting their loss function we just reweight the output
-    # the effect is similar: easy examples get down weighted, hard examples stay
-    #
-    # for the standard focal loss formula FL = -alpha * (1-pt)^gamma * log(pt)
-    # we approximate (1-pt)^gamma using the loss itself since loss = -log(pt)
+    '''
+    applies focal loss weighting to an already computed loss tensor
+    down weights easy examples (low loss) and keeps hard examples (high loss)
+
+    args:
+        loss_tensor: precomputed loss from torchvision SSD
+        gamma: focusing parameter (default 2.0, higher = more focus on hard examples)
+
+    returns:
+        weighted mean loss
+    '''
     # so pt = exp(-loss) and (1-pt)^gamma = (1 - exp(-loss))^gamma
     pt = torch.exp(-loss_tensor)
     focal_weight = (1.0 - pt) ** gamma
@@ -145,16 +154,20 @@ def focal_loss_weight(loss_tensor, gamma=FOCAL_LOSS_GAMMA):
 
 
 def compute_loss(locs, cls_scores, anchors, labels, bboxes):
-    # computes the SSD loss for a batch of tiles
-    # this follows the standard SSD training approach from the paper
-    #
-    # locs: [N, 1364, 4] predicted offsets from the model
-    # cls_scores: [N, 1364, 2] raw logits (waldo vs background) from the model
-    # anchors: [1364, 4] anchor positions in [cx, cy, w, h] format
-    # labels: [N] tile labels (0 = no waldo, 1 = has waldo)
-    # bboxes: [N, 4] ground truth bboxes in [xmin, ymin, xmax, ymax] format
-    #
-    # returns the combined loss (cls_loss + loc_loss)
+    '''
+    computes the SSD loss for a batch of tiles (custom SSD model only)
+    combines focal cross entropy for classification with smooth L1 for localization
+
+    args:
+        locs: predicted offsets [N, 1364, 4]
+        cls_scores: raw logits [N, 1364, 2] (waldo vs background)
+        anchors: anchor positions [1364, 4] in center format
+        labels: tile labels [N] (0 or 1)
+        bboxes: ground truth boxes [N, 4] in corner format
+
+    returns:
+        total_loss, cls_loss (float), loc_loss (float)
+    '''
 
     batch_size = locs.shape[0]
     num_anchors = locs.shape[1]
@@ -235,12 +248,21 @@ def compute_loss(locs, cls_scores, anchors, labels, bboxes):
 
 
 def train_one_epoch(model, dataloader, optimizer, device, scaler=None):
-    # runs one full pass through the training data
-    # for each batch: forward pass, compute loss, backward pass, update weights
-    # uses mixed precision (AMP) if a scaler is provided
-    # AMP runs the forward pass in float16 which is ~2x faster on modern GPUs
-    # and uses half the memory so we can fit bigger batches
-    # returns the average loss for this epoch
+    '''
+    runs one full pass through the training data
+    handles both torchvision models (SSD, RetinaNet) and our custom SSD
+    uses mixed precision (AMP) if a scaler is provided for ~2x speedup
+
+    args:
+        model: the detection model
+        dataloader: training data loader
+        optimizer: the optimizer
+        device: torch device (cuda/mps/cpu)
+        scaler: GradScaler for AMP (None to disable)
+
+    returns:
+        avg_loss, avg_cls_loss, avg_loc_loss for the epoch
+    '''
 
     model.train() # put the model in training mode
 
@@ -315,10 +337,18 @@ def train_one_epoch(model, dataloader, optimizer, device, scaler=None):
 
 
 def validate(model, dataloader, device):
-    # runs one pass through the validation data without updating weights
-    # we use this to check if the model is overfitting
-    # if train loss goes down but val loss goes up, the model is memorizing
-    # the training data instead of learning to generalize
+    '''
+    runs one pass through validation data without updating weights
+    used to check for overfitting (train loss down but val loss up)
+
+    args:
+        model: the detection model
+        dataloader: validation data loader
+        device: torch device
+
+    returns:
+        avg_loss, avg_cls_loss, avg_loc_loss for the validation set
+    '''
 
     model.eval() # put the model in eval mode
 
@@ -375,10 +405,19 @@ def validate(model, dataloader, device):
 
 
 def run_training(checkpoint_dir=None, model_override=None):
-    # main training function that can be called from experiment scripts
-    # checkpoint_dir: where to save model weights (defaults to CHECKPOINTS_DIR from config)
-    # model_override: pass a pre-created model instead of using create_model()
-    # returns: the trained model, best validation loss, and training history
+    '''
+    main training function, can be called directly or from experiment scripts
+    handles model creation, optimizer setup, training loop, and checkpointing
+
+    args:
+        checkpoint_dir: where to save weights (defaults to CHECKPOINTS_DIR)
+        model_override: pre-created model to use instead of create_model()
+
+    returns:
+        model: the trained model
+        best_val_loss: best validation loss achieved
+        history: dict with train/val loss lists for each epoch
+    '''
 
     save_dir = checkpoint_dir or CHECKPOINTS_DIR
     os.makedirs(save_dir, exist_ok=True)

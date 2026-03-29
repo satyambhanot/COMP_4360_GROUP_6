@@ -36,7 +36,7 @@ device = get_device()
 
 
 def evaluate_ablation_variant(variant_name, use_hsv, use_sobel):
-    # creates the model with correct preprocessing flags, loads checkpoint, evaluates
+    '''creates model with correct preprocessing flags, loads checkpoint, and evaluates'''
 
     variant_dir = os.path.join(PROJECT_ROOT, "saved_results", "ablation", variant_name)
     checkpoint_path = os.path.join(variant_dir, "checkpoints", "best_model.pth")

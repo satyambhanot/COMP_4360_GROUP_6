@@ -30,7 +30,7 @@ MODELS = {
 
 
 def reeval_model(name, config_overrides, checkpoint_dir, plots_dir, output_dir):
-    # re-evaluates a single model from its saved checkpoint
+    '''re-evaluates a single model from its saved checkpoint without retraining'''
 
     checkpoint_path = os.path.join(checkpoint_dir, "best_model.pth")
     if not os.path.exists(checkpoint_path):
@@ -62,9 +62,7 @@ def reeval_model(name, config_overrides, checkpoint_dir, plots_dir, output_dir):
 
 
 def reeval_ablation_variant(variant_name, use_hsv, use_sobel):
-    # re-evaluates one ablation variant as a separate process
-    # needs its own process because the model has different input channels
-    # depending on use_hsv and use_sobel flags
+    '''spawns a separate process to re-evaluate one ablation variant'''
 
     script = os.path.join(PROJECT_ROOT, "experiments", "reeval_ablation_variant.py")
     cmd = [sys.executable, script, variant_name, str(use_hsv), str(use_sobel)]

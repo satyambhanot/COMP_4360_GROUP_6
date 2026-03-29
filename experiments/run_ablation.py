@@ -39,9 +39,7 @@ VARIANTS = [
 
 
 def run_variant_process(name, use_hsv, use_sobel):
-    # launches run_ablation_variant.py as a separate process
-    # this way each variant gets a clean GPU with no leftover memory
-    # from the previous variant
+    '''launches one ablation variant as a separate process for clean GPU memory'''
 
     script = os.path.join(PROJECT_ROOT, "experiments", "run_ablation_variant.py")
     cmd = [sys.executable, script, name, use_hsv, use_sobel]
@@ -61,7 +59,7 @@ def run_variant_process(name, use_hsv, use_sobel):
 
 
 def generate_comparison():
-    # loads metrics from each variant and creates comparison chart
+    '''loads metrics from all variants and creates a comparison bar chart'''
 
     os.makedirs(COMPARISON_DIR, exist_ok=True)
 

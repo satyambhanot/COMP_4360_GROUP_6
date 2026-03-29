@@ -24,8 +24,7 @@ REPORT_DIR = os.path.join(SAVED_RESULTS, "report")
 
 
 def find_all_results():
-    # scans saved_results/ for all model folders that have metrics.json
-    # returns a dict of model_name -> metrics
+    '''scans saved_results/ for metrics.json in each model folder'''
 
     models = {}
 
@@ -58,8 +57,7 @@ def find_all_results():
 
 
 def find_ablation_results():
-    # reads ablation results from each variants individual metrics.json
-    # not from the old combined ablation_results.json which may be stale
+    '''reads ablation results from each variants individual metrics.json'''
     ablation_dir = os.path.join(SAVED_RESULTS, "ablation")
     if not os.path.exists(ablation_dir):
         return None
@@ -84,7 +82,7 @@ def find_ablation_results():
 
 
 def plot_model_comparison(models):
-    # grouped bar chart comparing precision, recall, F1 across all models
+    '''creates grouped bar chart comparing precision, recall, F1 across all models'''
 
     if len(models) < 2:
         print("need at least 2 models to compare")
@@ -122,7 +120,7 @@ def plot_model_comparison(models):
 
 
 def plot_improvement_journey(models):
-    # line chart showing F1 progression across model iterations
+    '''creates line chart showing F1 progression across model iterations'''
 
     order = ["Custom SSD", "Pretrained SSD300", "RetinaNet", "YOLOv8"]
     ordered = [(n, models[n]) for n in order if n in models]
@@ -161,7 +159,7 @@ def plot_improvement_journey(models):
 
 
 def generate_summary_table(models):
-    # clean comparison table as image and text
+    '''creates a comparison table as both image and text file'''
 
     model_names = list(models.keys())
     headers = ["Model", "Precision", "Recall", "F1", "Accuracy"]
@@ -219,7 +217,7 @@ def generate_summary_table(models):
 
 
 def save_combined_results(models, ablation):
-    # saves everything to one JSON for easy reference
+    '''saves all model and ablation results to a single JSON file'''
 
     combined = {
         "model_comparison": {},

@@ -34,14 +34,13 @@ class Experiment:
         os.makedirs(self.plots_dir, exist_ok=True)
 
     def apply_config(self):
-        # override config values before importing anything that reads them
-        # this is called before train.py or evaluate.py load their config
+        '''overrides config values before train/evaluate modules are imported'''
         import config
         for key, value in self.config_overrides.items():
             setattr(config, key, value)
 
     def run(self):
-        # the full experiment pipeline: apply config -> train -> evaluate -> save
+        '''runs the full experiment: apply config, train, evaluate, save results'''
         print(f"{'=' * 50}")
         print(f"  Experiment: {self.name}")
         print(f"  Output: {self.output_dir}")

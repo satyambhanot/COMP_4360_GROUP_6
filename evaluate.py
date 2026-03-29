@@ -96,8 +96,10 @@ def load_model():
 
 
 def draw_boxes(image, boxes, labels=None, scores=None, color="red", width=2):
-    # takes a PIL image and draws bounding boxes on it
-    # used for visualizing what the model predicted
+    '''
+    takes a PIL image and draws bounding boxes on it
+    used for visualizing what the model predicted
+    '''
     draw = ImageDraw.Draw(image)
 
     for i, box in enumerate(boxes):
@@ -117,9 +119,11 @@ def draw_boxes(image, boxes, labels=None, scores=None, color="red", width=2):
 
 
 def create_tiles_from_image(image, tile_size, overlap):
-    # takes a full wheres waldo image and chops it into tiles
-    # we keep track of each tiles position so we can map predictions
-    # back to the original image later
+    '''
+    takes a full wheres waldo image and chops it into tiles
+    we keep track of each tiles position so we can map predictions
+    back to the original image later
+    '''
     tiles = []
     tile_coords = []
 
@@ -135,9 +139,11 @@ def create_tiles_from_image(image, tile_size, overlap):
 
 
 def unnormalize(tensor):
-    # the dataloader normalizes images with imagenet mean and std
-    # to display them as normal images we need to undo that
-    # otherwise the colors look completely wrong
+    '''
+    the dataloader normalizes images with imagenet mean and std
+    to display them as normal images we need to undo that
+    otherwise the colors look completely wrong
+    '''
     mean = torch.tensor(IMAGENET_MEAN).view(3, 1, 1)
     std = torch.tensor(IMAGENET_STD).view(3, 1, 1)
     return (tensor * std + mean).clamp(0, 1)
@@ -348,19 +354,21 @@ def compute_metrics(predictions, labels):
 
 
 def compute_image_level_metrics(predictions, labels, confidences, dataset):
-    # the tile level metrics above tell us stuff like "precision is 0.24 across all tiles"
-    # but thats not really what we care about in practice
-    # what we actually want to know is: if i give you a full wheres waldo image
-    # can you tell me where waldo is? thats an image level question not a tile level one
-    #
-    # so we group all the test tiles back by their source image and ask:
-    #   for each image that has waldo, did the model detect him in at least one tile?
-    #   for each image, how many tiles gave false alarms?
-    # this gives us a much better picture of how useful the model actually is
-    #
-    # example: if we have 500 tiles from one image and 1 tile correctly finds waldo
-    # but 3 tiles have false positives, the tile level precision looks bad (1/4 = 25%)
-    # but at the image level we found waldo and only had 3 false alarms which is fine
+    '''
+    the tile level metrics above tell us stuff like "precision is 0.24 across all tiles"
+    but thats not really what we care about in practice
+    what we actually want to know is: if i give you a full wheres waldo image
+    can you tell me where waldo is? thats an image level question not a tile level one
+    
+    so we group all the test tiles back by their source image and ask:
+      for each image that has waldo, did the model detect him in at least one tile?
+      for each image, how many tiles gave false alarms?
+    this gives us a much better picture of how useful the model actually is
+    
+    example: if we have 500 tiles from one image and 1 tile correctly finds waldo
+    but 3 tiles have false positives, the tile level precision looks bad (1/4 = 25%)
+    but at the image level we found waldo and only had 3 false alarms which is fine
+    '''
 
     # the dataset tiles list is in the same order as the dataloader output
     # so we can just loop through both at the same time
@@ -424,10 +432,12 @@ def compute_image_level_metrics(predictions, labels, confidences, dataset):
 
 
 def analyze_thresholds(confidences, labels):
-    # tests different NMS confidence thresholds to find the best one
-    # a higher threshold means fewer false positives but might miss waldos
-    # a lower threshold catches more waldos but also more false alarms
-    # this helps us pick the right threshold and shows the tradeoff in the report
+    '''
+    tests different NMS confidence thresholds to find the best one
+    a higher threshold means fewer false positives but might miss waldos
+    a lower threshold catches more waldos but also more false alarms
+    this helps us pick the right threshold and shows the tradeoff in the report
+    '''
 
     print("\nthreshold analysis (what happens at different confidence cutoffs):")
     print(f"  {'threshold':>10}  {'precision':>10}  {'recall':>10}  {'f1':>10}  {'detected':>10}  {'false pos':>10}")
@@ -456,10 +466,12 @@ def analyze_thresholds(confidences, labels):
 
 
 def plot_precision_recall_curve(confidences, labels):
-    # plots a precision vs recall curve showing the tradeoff at different thresholds
-    # this is a standard chart in object detection papers
-    # each point represents a different confidence threshold
-    # the curve shows: if we want higher recall we sacrifice precision and vice versa
+    '''
+    plots a precision vs recall curve showing the tradeoff at different thresholds
+    this is a standard chart in object detection papers
+    each point represents a different confidence threshold
+    the curve shows: if we want higher recall we sacrifice precision and vice versa
+    '''
 
     precisions = []
     recalls = []
@@ -508,9 +520,11 @@ def plot_precision_recall_curve(confidences, labels):
 
 
 def save_results(metrics, confidences, labels, best_threshold=0.5, best_f1=0, image_metrics=None, inference_time=0, num_tiles=0):
-    # saves all the evaluation results to a json file
-    # this makes it easy to load the numbers into the report
-    # or compare against ablation study results later
+    '''
+    saves all the evaluation results to a json file
+    this makes it easy to load the numbers into the report
+    or compare against ablation study results later
+    '''
 
     results = {
         "metrics": metrics,
@@ -537,9 +551,11 @@ def save_results(metrics, confidences, labels, best_threshold=0.5, best_f1=0, im
 
 
 def plot_training_curves():
-    # loads the training history json and plots the loss curves
-    # this shows whether the model was learning and when it started overfitting
-    # we plot train and val loss on the same chart for easy comparison
+    '''
+    loads the training history json and plots the loss curves
+    this shows whether the model was learning and when it started overfitting
+    we plot train and val loss on the same chart for easy comparison
+    '''
 
     # read from config at call time so experiment scripts can override the path
     import config as _cfg
@@ -591,10 +607,12 @@ def plot_training_curves():
 
 
 def plot_confidence_distribution(confidences, labels):
-    # shows the distribution of confidence scores for positive vs negative tiles
-    # if the model is working well, positive tiles should have high confidence
-    # and negative tiles should have low confidence
-    # if the two distributions overlap a lot the model is confused
+    '''
+    shows the distribution of confidence scores for positive vs negative tiles
+    if the model is working well, positive tiles should have high confidence
+    and negative tiles should have low confidence
+    if the two distributions overlap a lot the model is confused
+    '''
 
     pos_conf = [c for c, l in zip(confidences, labels) if l == 1]
     neg_conf = [c for c, l in zip(confidences, labels) if l == 0]
@@ -614,10 +632,12 @@ def plot_confidence_distribution(confidences, labels):
 
 
 def plot_confusion_matrix(predictions, labels):
-    # draws the confusion matrix as a colored heatmap image
-    # way more useful in a report than just printing numbers to the console
-    # green cells for correct predictions, red cells for errors
-    # the professor will expect to see this in any ML project
+    '''
+    draws the confusion matrix as a colored heatmap image
+    way more useful in a report than just printing numbers to the console
+    green cells for correct predictions, red cells for errors
+    the professor will expect to see this in any ML project
+    '''
 
     tp = sum(1 for p, l in zip(predictions, labels) if p == 1 and l == 1)
     fp = sum(1 for p, l in zip(predictions, labels) if p == 1 and l == 0)
@@ -652,11 +672,13 @@ def plot_confusion_matrix(predictions, labels):
 
 
 def plot_f1_vs_threshold(confidences, labels):
-    # shows how the F1 score changes as we adjust the confidence threshold
-    # this is helpful because it answers "what threshold should we use?"
-    # a curve that peaks sharply means theres a clear best threshold
-    # a flat curve means the model isnt very sensitive to the threshold choice
-    # we also plot precision and recall alongside so you can see the tradeoff
+    '''
+    shows how the F1 score changes as we adjust the confidence threshold
+    this is helpful because it answers "what threshold should we use?"
+    a curve that peaks sharply means theres a clear best threshold
+    a flat curve means the model isnt very sensitive to the threshold choice
+    we also plot precision and recall alongside so you can see the tradeoff
+    '''
 
     thresholds = [t / 100 for t in range(5, 96, 5)]
     precisions = []
@@ -705,11 +727,13 @@ def plot_f1_vs_threshold(confidences, labels):
 
 
 def plot_roc_curve(confidences, labels):
-    # ROC curve shows false positive rate vs true positive rate
-    # this is one of the standard evaluation plots in machine learning
-    # the area under the curve (AUC) tells you overall how good the model is
-    # AUC of 1.0 means perfect, 0.5 means random guessing
-    # the professor will definitely expect to see this
+    '''
+    ROC curve shows false positive rate vs true positive rate
+    this is one of the standard evaluation plots in machine learning
+    the area under the curve (AUC) tells you overall how good the model is
+    AUC of 1.0 means perfect, 0.5 means random guessing
+    the professor will definitely expect to see this
+    '''
 
     # compute ROC points at many thresholds
     thresholds = [t / 200 for t in range(0, 201)]
@@ -756,10 +780,12 @@ def plot_roc_curve(confidences, labels):
 
 
 def plot_per_image_summary(predictions, labels, dataset):
-    # creates a visual summary showing how the model performed on each test image
-    # for each image we show: image id, total tiles, waldo found?, false positives
-    # this is useful for the report because it shows which specific images are
-    # easy vs hard for the model and helps explain where the model struggles
+    '''
+    creates a visual summary showing how the model performed on each test image
+    for each image we show: image id, total tiles, waldo found?, false positives
+    this is useful for the report because it shows which specific images are
+    easy vs hard for the model and helps explain where the model struggles
+    '''
 
     # group results by image id (same logic as compute_image_level_metrics)
     image_results = {}
@@ -835,9 +861,11 @@ def plot_per_image_summary(predictions, labels, dataset):
 
 
 def visualize_samples(model, dataloader, device, num_samples=5):
-    # grabs some test tiles and draws the model predictions on them
-    # saves the images so we can put them in the report
-    # we try to get a mix of true positives, false positives, and false negatives
+    '''
+    grabs some test tiles and draws the model predictions on them
+    saves the images so we can put them in the report
+    we try to get a mix of true positives, false positives, and false negatives
+    '''
 
     tp_images = [] # correctly found waldo
     fp_images = [] # falsely said waldo
@@ -899,9 +927,11 @@ def visualize_samples(model, dataloader, device, num_samples=5):
 
 
 def run_demo(model, device, image_path=None):
-    # takes a full wheres waldo image, tiles it up, runs every tile
-    # through the model, and draws boxes where it thinks waldo is
-    # this is the final "look it found waldo" image for the presentation
+    '''
+    takes a full wheres waldo image, tiles it up, runs every tile
+    through the model, and draws boxes where it thinks waldo is
+    this is the final "look it found waldo" image for the presentation
+    '''
 
     # pick the first test image if none specified
     if image_path is None:

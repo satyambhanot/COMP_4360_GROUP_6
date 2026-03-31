@@ -16,6 +16,9 @@ export PYTHONUNBUFFERED=1
 # cd to project root (one level up from scripts/)
 cd "$(dirname "$0")/.." || exit 1
 
+# add src/ to python path so all scripts can import config
+export PYTHONPATH="$PWD/src:$PYTHONPATH"
+
 # make sure results directory exists before we start logging
 mkdir -p results
 

@@ -22,6 +22,9 @@ export PYTHONUNBUFFERED=1
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
+# add src/ to python path so all scripts can import config
+export PYTHONPATH="$PWD/src:$PYTHONPATH"
+
 mkdir -p results
 
 exec > >(tee results/demo_log.txt) 2>&1

@@ -11,15 +11,16 @@
 #   4. runs full evaluation with all plots and metrics
 #   5. runs demo detection on sample images
 #
-# usage: bash demo.sh
+# usage: bash scripts/demo.sh
 #
 # requires: a trained checkpoint in checkpoints/best_model.pth
 # outputs go to results/ folder, log saved to results/demo_log.txt
 
 export PYTHONUNBUFFERED=1
 
+# cd to project root (one level up from scripts/)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR"
+cd "$SCRIPT_DIR/.."
 
 mkdir -p results
 
@@ -58,7 +59,7 @@ if [ ! -f "checkpoints/best_model.pth" ]; then
     echo "ERROR: no trained model found at checkpoints/best_model.pth"
     echo ""
     echo "you need to train the model first. options:"
-    echo "  bash run.sh                           (full pipeline, trains + evaluates)"
+    echo "  bash scripts/run.sh                    (full pipeline, trains + evaluates)"
     echo "  python src/train.py                   (just training)"
     echo "  python experiments/run_retinanet.py   (train via experiment framework)"
     exit 1

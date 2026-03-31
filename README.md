@@ -43,11 +43,13 @@ COMP_4360_GROUP_6/
 ├── README.md
 ├── .gitignore
 ├── requirements.txt                    # pinned dependency versions
-├── setup.sh                            # checks and installs missing dependencies
-├── run.sh                              # runs the full pipeline end to end
-├── demo.sh                             # quick eval using existing checkpoint (no training)
-├── run_all_experiments.sh              # trains all models + ablation + comparison report
-├── clean.sh                            # resets generated files for a fresh run
+│
+├── scripts/
+│   ├── setup.sh                        # checks and installs missing dependencies
+│   ├── run.sh                          # runs the full pipeline end to end
+│   ├── demo.sh                         # quick eval using existing checkpoint (no training)
+│   ├── run_all_experiments.sh          # trains all models + ablation + comparison report
+│   └── clean.sh                        # resets generated files for a fresh run
 │
 ├── src/
 │   ├── config.py                       # all settings in one place
@@ -108,7 +110,7 @@ COMP_4360_GROUP_6/
 If a trained checkpoint already exists (`checkpoints/best_model.pth`), you can see results without waiting for training:
 
 ```bash
-bash demo.sh
+bash scripts/demo.sh
 ```
 
 This checks dependencies, generates tiles if needed, loads the saved model, and runs the full evaluation with all plots and metrics. Takes about 10 minutes instead of hours.
@@ -116,8 +118,8 @@ This checks dependencies, generates tiles if needed, loads the saved model, and 
 ### Full Pipeline (training + evaluation)
 
 ```bash
-bash setup.sh       # install dependencies (only missing ones)
-bash run.sh         # tile images, train model, evaluate, generate plots
+bash scripts/setup.sh       # install dependencies (only missing ones)
+bash scripts/run.sh         # tile images, train model, evaluate, generate plots
 ```
 
 The complete output gets saved to `results/run_log.txt`.
@@ -127,7 +129,7 @@ The complete output gets saved to `results/run_log.txt`.
 To train all 4 model architectures, run the ablation study, and generate a comparison report:
 
 ```bash
-bash run_all_experiments.sh
+bash scripts/run_all_experiments.sh
 ```
 
 Results are saved to `saved_results/<model_name>/` for each experiment. Or run experiments individually:
@@ -146,14 +148,14 @@ python experiments/generate_report.py    # comparison charts from all results
 ```bash
 python src/scripts/test_image.py path/to/image.jpg   # detect Waldo in any image
 python src/scripts/visualize_data.py                  # see preprocessing channels (HSV, Sobel)
-bash clean.sh                                         # reset generated files for a fresh run
-bash clean.sh --all                                   # also remove saved experiment results
+bash scripts/clean.sh                                  # reset generated files for a fresh run
+bash scripts/clean.sh --all                            # also remove saved experiment results
 ```
 
 ### Run Steps Individually
 
 ```bash
-bash setup.sh                           # install dependencies
+bash scripts/setup.sh                   # install dependencies
 python src/data/data_pipeline.py        # generate tiles from raw images
 python src/train.py                     # train the model
 python src/evaluate.py                  # evaluate and generate plots
@@ -254,7 +256,7 @@ Training was done on an NVIDIA GTX 1080 Ti (11GB VRAM). RetinaNet at 512x512 tak
 - Pillow (>=10.0.0), matplotlib (>=3.7.0)
 - ultralytics (>=8.0.0) for YOLOv8 comparison
 
-All dependencies are pinned with version ranges in `requirements.txt`. Run `bash setup.sh` to check and install only what is missing.
+All dependencies are pinned with version ranges in `requirements.txt`. Run `bash scripts/setup.sh` to check and install only what is missing.
 
 
 ## References

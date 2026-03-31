@@ -4,7 +4,7 @@
 # checks and installs dependencies for the wheres waldo detection pipeline
 # only installs packages that are missing or have incompatible versions
 #
-# usage: bash setup.sh
+# usage: bash scripts/setup.sh
 
 echo "========================================"
 echo "  Wheres Waldo - Dependency Setup"
@@ -48,9 +48,10 @@ fi
 echo "pip found: $($PIP --version)"
 echo ""
 
-# read requirements.txt and check each package
+# read requirements.txt from project root (one level up from scripts/)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REQ_FILE="$SCRIPT_DIR/requirements.txt"
+PROJECT_ROOT="$SCRIPT_DIR/.."
+REQ_FILE="$PROJECT_ROOT/requirements.txt"
 
 if [ ! -f "$REQ_FILE" ]; then
     echo "ERROR: requirements.txt not found at $REQ_FILE"
@@ -110,7 +111,7 @@ echo ""
 if [ ${#MISSING[@]} -eq 0 ]; then
     echo "All dependencies are already installed!"
     echo ""
-    echo "You can run the pipeline with: bash run.sh"
+    echo "You can run the pipeline with: bash scripts/run.sh"
     exit 0
 fi
 
@@ -132,5 +133,5 @@ fi
 echo ""
 echo "========================================"
 echo "  Setup complete!"
-echo "  Run the pipeline with: bash run.sh"
+echo "  Run the pipeline with: bash scripts/run.sh"
 echo "========================================"

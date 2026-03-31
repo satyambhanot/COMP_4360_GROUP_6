@@ -17,11 +17,12 @@
 #   - source code
 #
 # usage:
-#   bash clean.sh              (clean main pipeline outputs)
-#   bash clean.sh --all        (also clean saved_results/ from experiments)
+#   bash scripts/clean.sh              (clean main pipeline outputs)
+#   bash scripts/clean.sh --all        (also clean saved_results/ from experiments)
 
+# cd to project root (one level up from scripts/)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR"
+cd "$SCRIPT_DIR/.."
 
 echo "========================================"
 echo "  Wheres Waldo - Clean"
@@ -75,5 +76,5 @@ fi
 echo ""
 echo "done! project is clean."
 if [ "$CLEAN_ALL" = false ]; then
-    echo "(use 'bash clean.sh --all' to also remove saved_results/)"
+    echo "(use 'bash scripts/clean.sh --all' to also remove saved_results/)"
 fi

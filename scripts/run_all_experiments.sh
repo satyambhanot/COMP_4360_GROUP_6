@@ -12,15 +12,16 @@
 #   5. Preprocessing ablation (RGB only, RGB+HSV, RGB+HSV+Sobel)
 #   6. Comparison report from all results
 #
-# usage: bash run_all_experiments.sh
+# usage: bash scripts/run_all_experiments.sh
 #
 # results saved to saved_results/<model_name>/ for each experiment
 # final comparison charts saved to saved_results/report/
 
 export PYTHONUNBUFFERED=1
 
+# cd to project root (one level up from scripts/)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR"
+cd "$SCRIPT_DIR/.."
 
 echo "========================================"
 echo "  Wheres Waldo - All Experiments"

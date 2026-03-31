@@ -4,7 +4,7 @@
 # runs the wheres waldo detection pipeline from start to finish
 # generates tiles, trains the current MODEL_TYPE from config.py, and evaluates
 #
-# usage: bash run.sh
+# usage: bash scripts/run.sh
 #
 # results go to the results/ folder, log saved to results/run_log.txt
 # trained model saved to checkpoints/ folder
@@ -12,6 +12,9 @@
 
 # force python to flush output immediately so progress shows through tee
 export PYTHONUNBUFFERED=1
+
+# cd to project root (one level up from scripts/)
+cd "$(dirname "$0")/.." || exit 1
 
 # make sure results directory exists before we start logging
 mkdir -p results

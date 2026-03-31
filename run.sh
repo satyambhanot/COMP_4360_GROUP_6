@@ -45,11 +45,15 @@ if ! command -v python3 &> /dev/null; then
     PYTHON=python
 fi
 
-# step 1: install dependencies
+# step 1: install dependencies (only installs what is missing)
 echo "========================================"
-echo "  Step 1: Installing dependencies"
+echo "  Step 1: Checking dependencies"
 echo "========================================"
-pip install -r requirements.txt 2>/dev/null || pip3 install -r requirements.txt
+bash "$(dirname "$0")/setup.sh"
+if [ $? -ne 0 ]; then
+    echo "ERROR: dependency setup failed. Fix the issues above and re-run."
+    exit 1
+fi
 echo ""
 
 # step 2: generate tiles from raw images

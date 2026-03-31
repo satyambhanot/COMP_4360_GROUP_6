@@ -45,6 +45,9 @@ COMP_4360_GROUP_6/
 ├── requirements.txt                    # pinned dependency versions
 ├── setup.sh                            # checks and installs missing dependencies
 ├── run.sh                              # runs the full pipeline end to end
+├── demo.sh                             # quick eval using existing checkpoint (no training)
+├── run_all_experiments.sh              # trains all models + ablation + comparison report
+├── clean.sh                            # resets generated files for a fresh run
 │
 ├── src/
 │   ├── config.py                       # all settings in one place
@@ -67,7 +70,9 @@ COMP_4360_GROUP_6/
 │   │
 │   └── scripts/
 │       ├── print_summary.py           # model summary and results printing
-│       └── sanity_check.py            # post training confidence check
+│       ├── sanity_check.py            # post training confidence check
+│       ├── visualize_data.py          # preprocessing channel visualization
+│       └── test_image.py              # detect Waldo in any image
 │
 ├── experiments/
 │   ├── base_experiment.py             # shared experiment template class
@@ -98,32 +103,34 @@ COMP_4360_GROUP_6/
 
 ## How to Run
 
-First, check and install dependencies:
+### Quick Start (recommended for graders)
+
+If a trained checkpoint already exists (`checkpoints/best_model.pth`), you can see results without waiting for training:
 
 ```bash
-bash setup.sh
+bash demo.sh
 ```
 
-This checks each package individually and only installs what is missing. If everything is already installed, it skips the install step entirely.
+This checks dependencies, generates tiles if needed, loads the saved model, and runs the full evaluation with all plots and metrics. Takes about 10 minutes instead of hours.
 
-Then run the full pipeline:
+### Full Pipeline (training + evaluation)
 
 ```bash
-bash run.sh
+bash setup.sh       # install dependencies (only missing ones)
+bash run.sh         # tile images, train model, evaluate, generate plots
 ```
 
-This goes through all the steps: checks dependencies via setup.sh, tiles the raw images, prints a model summary, trains the model with early stopping, runs a sanity check, and then does the full evaluation with all the plots and metrics. The complete output gets saved to `results/run_log.txt`.
+The complete output gets saved to `results/run_log.txt`.
 
-To run steps individually:
+### Run All Experiments
+
+To train all 4 model architectures, run the ablation study, and generate a comparison report:
 
 ```bash
-bash setup.sh                           # install dependencies (only missing ones)
-python src/data/data_pipeline.py        # generate tiles from raw images
-python src/train.py                     # train the model
-python src/evaluate.py                  # evaluate and generate plots
+bash run_all_experiments.sh
 ```
 
-To run individual experiments through the experiment framework:
+Results are saved to `saved_results/<model_name>/` for each experiment. Or run experiments individually:
 
 ```bash
 python experiments/run_retinanet.py
@@ -131,12 +138,27 @@ python experiments/run_pretrained_ssd.py
 python experiments/run_custom_ssd.py
 python experiments/run_yolo.py
 python experiments/run_ablation.py
+python experiments/generate_report.py    # comparison charts from all results
 ```
 
-Each experiment saves its results to a separate folder under `saved_results/` so nothing gets overwritten. After running multiple experiments, generate a comparison report:
+### Other Useful Commands
 
 ```bash
-python experiments/generate_report.py
+python src/scripts/test_image.py path/to/image.jpg   # detect Waldo in any image
+python src/scripts/visualize_data.py                  # see preprocessing channels (HSV, Sobel)
+bash clean.sh                                         # reset generated files for a fresh run
+bash clean.sh --all                                   # also remove saved experiment results
+```
+
+### Run Steps Individually
+
+```bash
+bash setup.sh                           # install dependencies
+python src/data/data_pipeline.py        # generate tiles from raw images
+python src/train.py                     # train the model
+python src/evaluate.py                  # evaluate and generate plots
+python src/scripts/sanity_check.py      # quick model validation
+python src/scripts/print_summary.py results   # print evaluation metrics
 ```
 
 

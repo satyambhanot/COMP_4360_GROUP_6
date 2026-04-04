@@ -77,13 +77,18 @@ def load_model():
     # older checkpoints might not have model_type so we default to the config
     model_type = checkpoint.get("model_type", MODEL_TYPE)
 
+    # read preprocessing flags saved during training
+    # older checkpoints might not have these so default to both enabled
+    use_hsv = checkpoint.get("use_hsv", True)
+    use_sobel = checkpoint.get("use_sobel", True)
+
     # create the right model based on what was trained
     if model_type == "retinanet":
-        model = WaldoDetectorRetinaNet()
+        model = WaldoDetectorRetinaNet(use_hsv=use_hsv, use_sobel=use_sobel)
     elif model_type == "pretrained_ssd":
-        model = WaldoDetectorPretrained()
+        model = WaldoDetectorPretrained(use_hsv=use_hsv, use_sobel=use_sobel)
     else:
-        model = WaldoDetector()
+        model = WaldoDetector(use_hsv=use_hsv, use_sobel=use_sobel)
 
     model = model.to(device)
     model.load_state_dict(checkpoint["model_state_dict"])

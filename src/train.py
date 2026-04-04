@@ -561,6 +561,8 @@ def run_training(checkpoint_dir=None, model_override=None):
                 "model_state_dict": model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
                 "val_loss": val_loss,
+                "use_hsv": getattr(model, "use_hsv", True),
+                "use_sobel": getattr(model, "use_sobel", True),
             }, os.path.join(save_dir, "best_model.pth"))
             saved = " [saved best]"
         else:
@@ -573,6 +575,8 @@ def run_training(checkpoint_dir=None, model_override=None):
             "model_state_dict": model.state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
             "val_loss": val_loss,
+            "use_hsv": getattr(model, "use_hsv", True),
+            "use_sobel": getattr(model, "use_sobel", True),
         }, os.path.join(save_dir, "last_model.pth"))
 
         # print a summary for this epoch including the current learning rate

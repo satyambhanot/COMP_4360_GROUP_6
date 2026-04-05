@@ -77,10 +77,12 @@ def load_model():
     # older checkpoints might not have model_type so we default to the config
     model_type = checkpoint.get("model_type", MODEL_TYPE)
 
-    # read preprocessing flags saved during training
-    # older checkpoints might not have these so default to both enabled
+    # read preprocessing and architecture flags saved during training
+    # older checkpoints might not have these so default to standard values
     use_hsv = checkpoint.get("use_hsv", True)
     use_sobel = checkpoint.get("use_sobel", True)
+    use_pretrained = checkpoint.get("use_pretrained", True)
+    num_heads = checkpoint.get("num_heads", 5)
 
     # create the right model based on what was trained
     if model_type == "retinanet":
@@ -88,7 +90,8 @@ def load_model():
     elif model_type == "pretrained_ssd":
         model = WaldoDetectorPretrained(use_hsv=use_hsv, use_sobel=use_sobel)
     else:
-        model = WaldoDetector(use_hsv=use_hsv, use_sobel=use_sobel)
+        model = WaldoDetector(use_hsv=use_hsv, use_sobel=use_sobel,
+                              use_pretrained=use_pretrained, num_heads=num_heads)
 
     model = model.to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
@@ -1025,7 +1028,7 @@ def run_demo(model, device, image_path=None):
     print(f"saved demo image to {demo_path}")
 
 
-def run_evaluation(output_dir=None, checkpoint_dir=None):
+def run_evaluation(output_dir=None, checkpoint_dir=None, model_override=None):
     '''
     main evaluation function, can be called directly or from experiment scripts
     loads model, runs predictions, computes metrics, generates all plots
@@ -1033,6 +1036,8 @@ def run_evaluation(output_dir=None, checkpoint_dir=None):
     args:
         output_dir: where to save plots and json (defaults to results/)
         checkpoint_dir: where to load model from (defaults to checkpoints/)
+        model_override: pre-created model to use instead of loading from checkpoint
+                        useful for ablation studies that wrap the model (eg color transform)
 
     returns:
         metrics dict with precision, recall, f1, etc
@@ -1045,25 +1050,32 @@ def run_evaluation(output_dir=None, checkpoint_dir=None):
 
     os.makedirs(RESULTS_DIR, exist_ok=True)
 
-    # load the trained model
+    '''
+    if checkpoint_dir is provided, temporarily override CHECKPOINTS_DIR
+    so load_model and plot_training_curves find the right files
+    the override stays active until the end of this function
+    '''
+    import config as cfg
+    original_ckpt_dir = cfg.CHECKPOINTS_DIR
     if checkpoint_dir is not None:
-        # temporarily override CHECKPOINTS_DIR for loading
-        import config as cfg
-        original_ckpt_dir = cfg.CHECKPOINTS_DIR
         cfg.CHECKPOINTS_DIR = checkpoint_dir
 
-    model = load_model()
-
-    if checkpoint_dir is not None:
-        cfg.CHECKPOINTS_DIR = original_ckpt_dir
+    if model_override is not None:
+        model = model_override
+    else:
+        model = load_model()
 
     if model is None:
+        cfg.CHECKPOINTS_DIR = original_ckpt_dir
         RESULTS_DIR = original_results_dir
         return None
 
     # load the test data
+    # read tile size at call time so ablation scripts with different tile sizes work
+    import config as _cfg
+    tile_size = _cfg.TILE_SIZES[0]
     print("\nloading test data...")
-    test_loader = get_dataloader(split="test", tile_size=256, batch_size=BATCH_SIZE, shuffle=False)
+    test_loader = get_dataloader(split="test", tile_size=tile_size, batch_size=BATCH_SIZE, shuffle=False)
     print(f"  test set: {len(test_loader.dataset)} tiles")
 
     # run predictions on every test tile and measure how long it takes
@@ -1123,7 +1135,8 @@ def run_evaluation(output_dir=None, checkpoint_dir=None):
 
     print(f"\nevaluation complete! check {RESULTS_DIR}/ for all outputs")
 
-    # restore the original RESULTS_DIR
+    # restore overridden config values
+    cfg.CHECKPOINTS_DIR = original_ckpt_dir
     RESULTS_DIR = original_results_dir
 
     return metrics

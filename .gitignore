@@ -4,6 +4,7 @@ __pycache__/
 
 data/processed/*
 !data/processed/.gitkeep
+data/processed_ablation_tiles/
 
 checkpoints/*
 !checkpoints/.gitkeep

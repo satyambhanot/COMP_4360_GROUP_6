@@ -482,8 +482,14 @@ def run_training(checkpoint_dir=None, model_override=None):
     the val loader just loads tiles normally without any augmentation
     '''
     print("loading data...")
-    train_loader = get_dataloader(split="train", tile_size=256, batch_size=BATCH_SIZE)
-    val_loader = get_dataloader(split="val", tile_size=256, batch_size=BATCH_SIZE, shuffle=False)
+    '''
+    read TILE_SIZES at call time so ablation scripts that override
+    config.TILE_SIZES before importing train.py get the right value
+    '''
+    import config as _cfg
+    tile_size = _cfg.TILE_SIZES[0]
+    train_loader = get_dataloader(split="train", tile_size=tile_size, batch_size=BATCH_SIZE)
+    val_loader = get_dataloader(split="val", tile_size=tile_size, batch_size=BATCH_SIZE, shuffle=False)
     print(f"  train: {len(train_loader.dataset)} tiles")
     print(f"  val: {len(val_loader.dataset)} tiles")
 
@@ -563,6 +569,8 @@ def run_training(checkpoint_dir=None, model_override=None):
                 "val_loss": val_loss,
                 "use_hsv": getattr(model, "use_hsv", True),
                 "use_sobel": getattr(model, "use_sobel", True),
+                "use_pretrained": getattr(model, "use_pretrained", True),
+                "num_heads": getattr(model, "num_heads", 5),
             }, os.path.join(save_dir, "best_model.pth"))
             saved = " [saved best]"
         else:
@@ -577,6 +585,8 @@ def run_training(checkpoint_dir=None, model_override=None):
             "val_loss": val_loss,
             "use_hsv": getattr(model, "use_hsv", True),
             "use_sobel": getattr(model, "use_sobel", True),
+            "use_pretrained": getattr(model, "use_pretrained", True),
+            "num_heads": getattr(model, "num_heads", 5),
         }, os.path.join(save_dir, "last_model.pth"))
 
         # print a summary for this epoch including the current learning rate

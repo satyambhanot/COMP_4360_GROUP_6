@@ -52,8 +52,11 @@ class WaldoDetector(nn.Module):
         super().__init__()
 
         # save these flags so forward knows what preprocessing to do
+        # also saved in checkpoints so evaluate.py can reconstruct the right model
         self.use_hsv = use_hsv
         self.use_sobel = use_sobel
+        self.use_pretrained = use_pretrained
+        self.num_heads = num_heads
 
         # figure out how many input channels we have after preprocessing
         # starts at 3 for RGB, then we add 1 for HSV mask and 1 for sobel if enabled

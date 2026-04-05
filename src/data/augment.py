@@ -204,10 +204,13 @@ def generate_random_crops(image_id, img, img_w, img_h, waldo_bbox, tile_size=INP
     return tiles_info
 
 
-def run_augmentation():
+def run_augmentation(tile_size=INPUT_SIZE):
     '''
     main function that generates random crop augmentations for all images
     called by data_pipeline.py during the tiling process
+
+    args:
+        tile_size: size of each crop, should match the tiling size (default 256)
 
     returns:
         list of tile info dicts for all generated crops
@@ -215,7 +218,7 @@ def run_augmentation():
 
     random.seed(RANDOM_SEED)
 
-    print("generating random crop augmentations...")
+    print(f"generating random crop augmentations (tile_size={tile_size})...")
 
     # find all image ids that have annotations
     all_ids = []
@@ -247,7 +250,7 @@ def run_augmentation():
 
         _, _, waldo_bbox = parse_annotation(xml_path)
 
-        tiles = generate_random_crops(image_id, img, img_w, img_h, waldo_bbox)
+        tiles = generate_random_crops(image_id, img, img_w, img_h, waldo_bbox, tile_size=tile_size)
         if tiles:
             print(f"  image {image_id}: {len(tiles)} random crops")
             all_tiles.extend(tiles)

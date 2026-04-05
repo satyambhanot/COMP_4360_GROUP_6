@@ -226,7 +226,7 @@ def run_pipeline():
     we import it here so the augmented tiles get included in the same splits
     '''
     from data.augment import run_augmentation
-    augmented_tiles = run_augmentation()
+    augmented_tiles = run_augmentation(tile_size=TILE_SIZES[0])
     all_tiles.extend(augmented_tiles)
 
     # print some stats

@@ -115,4 +115,17 @@ if __name__ == "__main__":
         with open(os.path.join(variant_dir, "metrics.json"), "w") as f:
             json.dump(result, f, indent=2)
 
+    '''
+    clean up tiled data to free disk space
+    smaller tile sizes produce vastly more tiles (64x64 creates ~16x more than 256x256)
+    which can fill the disk before the next variant starts
+    the tiles are no longer needed after training and evaluation are done
+    checkpoints and metrics are saved separately in the variant folder
+    '''
+    import shutil
+    if os.path.exists(processed_dir):
+        print(f"\n  cleaning up tile data at {processed_dir}...", flush=True)
+        shutil.rmtree(processed_dir)
+        print(f"  freed disk space", flush=True)
+
     print(f"\n  {variant_name} complete!", flush=True)

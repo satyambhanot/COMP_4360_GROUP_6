@@ -266,7 +266,16 @@ class WaldoTileDataset(Dataset):
     '''
 
     def __init__(self, split="train", tile_size=256):
-        splits_path = os.path.join(PROCESSED, "splits.json")
+        '''
+        read PROCESSED from the config module at construction time
+        and store it as an instance attribute so DataLoader worker
+        processes use the correct path even when config was overridden
+        by ablation scripts before creating the dataset
+        '''
+        import config as _cfg
+        self._processed_dir = _cfg.PROCESSED
+
+        splits_path = os.path.join(self._processed_dir, "splits.json")
         with open(splits_path, "r") as f:
             all_splits = json.load(f)
 
@@ -321,7 +330,7 @@ class WaldoTileDataset(Dataset):
     def __getitem__(self, idx):
         tile_info = self.tiles[idx]
 
-        img_path = os.path.join(PROCESSED, str(self.tile_size), tile_info["file"])
+        img_path = os.path.join(self._processed_dir, str(self.tile_size), tile_info["file"])
         img = Image.open(img_path).convert("RGB")
 
         # get the bounding box (or zeros if no waldo)

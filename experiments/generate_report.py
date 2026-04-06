@@ -108,7 +108,7 @@ def find_all_ablations():
     ablation_configs = [
         ("Preprocessing", "ablation", ["full_pipeline", "hsv_only", "rgb_only"]),
         ("SSD Heads", "ablation_heads", ["5_heads", "4_heads", "3_heads"]),
-        ("Tile Resolution", "ablation_tiles", ["tiles_64", "tiles_128", "tiles_256"]),
+        ("Tile Resolution", "ablation_tiles", ["tiles_128", "tiles_256"]),
         ("Color Information", "ablation_color", ["color_rgb", "color_gray", "color_binary"]),
         ("Backbone Init", "ablation_backbone", ["pretrained", "random_init"]),
     ]
@@ -235,7 +235,6 @@ def plot_ablation_comparison(ablation_name, results, filename):
             "3_heads": "3 Heads"
         },
         "Tile Resolution": {
-            "tiles_64": "64x64",
             "tiles_128": "128x128",
             "tiles_256": "256x256"
         },

@@ -4,8 +4,7 @@ controller for the tile resolution ablation study
 runs each variant as a separate process so GPU memory is fully released
 
 tests what tile size works best for finding waldo:
-  tiles_64: 64x64 tiles resized to 256x256 (more tiles, blurry after upscale)
-  tiles_128: 128x128 tiles resized to 256x256 (medium tradeoff)
+  tiles_128: 128x128 tiles resized to 256x256 (more tiles, some upscale blur)
   tiles_256: 256x256 tiles at native resolution (fewer tiles, sharp)
 
 each variant re-tiles the entire dataset at its tile size before training
@@ -32,8 +31,13 @@ import numpy as np
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "saved_results", "ablation_tiles")
 COMPARISON_DIR = os.path.join(OUTPUT_DIR, "comparison")
 
+'''
+64x64 tiles were tested but produced F1=0 because Waldo is often
+larger than 64 pixels so the model only sees fragments after tiling.
+also creates millions of tiny files which can exhaust filesystem
+metadata on btrfs. dropped in favor of 128 vs 256 comparison.
+'''
 VARIANTS = [
-    ("tiles_64", "64"),
     ("tiles_128", "128"),
     ("tiles_256", "256"),
 ]

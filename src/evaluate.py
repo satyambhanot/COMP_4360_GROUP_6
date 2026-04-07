@@ -903,6 +903,15 @@ def visualize_samples(model, dataloader, device, num_samples=5):
                 nms_results = apply_nms(locs, cls_scores, anchors)
                 tile_results = nms_results
 
+            # predicted boxes come out in model input space (512x512 retinanet, 300x300 ssd)
+            # scale them back to tile pixel space so they line up with the image
+            is_retinanet = hasattr(model, "model_type") and model.model_type in ("pretrained_ssd", "retinanet")
+            if is_retinanet:
+                model_input_size = float(RETINANET_INPUT_SIZE)
+            else:
+                model_input_size = 300.0
+            box_scale = INPUT_SIZE / model_input_size
+
             for i in range(images.shape[0]):
                 boxes, scores = tile_results[i]
                 label = labels[i].item()
@@ -914,11 +923,13 @@ def visualize_samples(model, dataloader, device, num_samples=5):
                 img_pil = transforms.ToPILImage()(img_tensor)
 
                 if predicted == 1 and label == 1 and len(tp_images) < num_samples:
-                    img_pil = draw_boxes(img_pil, boxes.cpu(), scores=scores.cpu(), color="green")
+                    scaled_boxes = boxes.cpu().float() * box_scale
+                    img_pil = draw_boxes(img_pil, scaled_boxes, scores=scores.cpu(), color="green")
                     tp_images.append(img_pil)
 
                 elif predicted == 1 and label == 0 and len(fp_images) < num_samples:
-                    img_pil = draw_boxes(img_pil, boxes.cpu(), scores=scores.cpu(), color="red")
+                    scaled_boxes = boxes.cpu().float() * box_scale
+                    img_pil = draw_boxes(img_pil, scaled_boxes, scores=scores.cpu(), color="red")
                     fp_images.append(img_pil)
 
                 elif predicted == 0 and label == 1 and len(fn_images) < num_samples:

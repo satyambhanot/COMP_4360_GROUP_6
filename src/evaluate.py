@@ -35,7 +35,7 @@ from config import (
     IMAGENET_MEAN, IMAGENET_STD, RAW_IMAGES,
     MODEL_TYPE, NMS_CONFIDENCE_THRESHOLD,
     HSV_FILTER_THRESHOLD, USE_TTA,
-    RETINANET_INPUT_SIZE
+    RETINANET_INPUT_SIZE, PRETRAINED_SSD_INPUT_SIZE
 )
 from data.pre_processing import apply_hsv_mask
 
@@ -974,9 +974,18 @@ def run_demo(model, device, image_path=None):
     # tile the image the same way data_pipeline does
     tiles, tile_coords = create_tiles_from_image(image, INPUT_SIZE, overlap=0)
 
-    # apply the same transforms the dataloader uses
+    # resize to the model's native input size so the box scaling below is correct
+    # retinanet expects 512x512, pretrained ssd expects 300x300, custom ssd uses 256x256
+    is_pretrained = hasattr(model, "model_type") and model.model_type in ("pretrained_ssd", "retinanet")
+    if is_pretrained and model.model_type == "retinanet":
+        model_input_size = RETINANET_INPUT_SIZE
+    elif is_pretrained:
+        model_input_size = PRETRAINED_SSD_INPUT_SIZE
+    else:
+        model_input_size = INPUT_SIZE
+
     transform = transforms.Compose([
-        transforms.Resize((INPUT_SIZE, INPUT_SIZE)),
+        transforms.Resize((model_input_size, model_input_size)),
         transforms.ToTensor(),
         transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)
     ])

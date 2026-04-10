@@ -1,4 +1,5 @@
-# Where's Waldo? - CNN Based Character Detection in Cluttered Scenes
+# Where's Waldo? 
+# A CNN-Based Character Detection in Cluttered Scenes
 
 **Course:** COMP 4360 Machine Learning, University of Manitoba
 **Team:** Rudy Kissel, Satyam Bhanot, Gabriel Barnabe
